@@ -237,7 +237,7 @@ def main():
             fade_old,   fade_new   = fade_new,   np.random.uniform(0.97, 0.99)
 
             loop_over   = np.random.random() > 0.8
-            high_reach  = np.random.random() > 0.2
+            high_reach  = np.random.random() > 0.4
 
             angle_old, angle_new = angle_new, np.radians(np.clip(
                 np.random.uniform(160, 179) if loop_over
