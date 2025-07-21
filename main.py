@@ -1,0 +1,160 @@
+import numpy as np
+import taichi as ti
+import taichi.math as tm
+
+ti.init(arch=ti.gpu)
+
+HEIGHT = 720
+SIZE = (HEIGHT * 9 // 16, HEIGHT)
+AGENT_COUNT = 1000000
+COLOR = 1500 / AGENT_COUNT
+SENSE_AREA = 5
+
+
+def random_points_in_circle(n, r=1.0):
+    # random angles
+    theta = np.random.uniform(0, 2 * np.pi, n)
+    # radii with √ to ensure uniform area density
+    r = np.sqrt(np.random.uniform(0, 1, n)) * r
+
+    x = r * np.cos(theta)
+    y = r * np.sin(theta)
+    return np.column_stack((x, y))
+
+
+agents_grid = ti.field(dtype=ti.f32, shape=SIZE)
+temp = ti.field(dtype=ti.f32, shape=SIZE)
+
+agents_cpu = np.zeros((AGENT_COUNT, 3), dtype=np.float32)
+origins = random_points_in_circle(AGENT_COUNT, r=SIZE[0] // 4)
+agents_cpu[:, 0] = origins[:, 0] + SIZE[0] // 2
+agents_cpu[:, 1] = origins[:, 1] + SIZE[1] // 2
+agents_cpu[:, 2] = np.random.random(AGENT_COUNT) * 2 * np.pi
+
+agents = ti.field(dtype=tm.vec3, shape=(AGENT_COUNT,))
+agents.from_numpy(agents_cpu)
+
+sigma = 0.3
+RADIUS = int(np.ceil(sigma * 3))
+
+# precompute 1D Gaussian weights
+weights_cpu = np.array([np.exp(-0.5 * (i / sigma) ** 2) for i in range(-RADIUS, RADIUS + 1)], dtype=np.float32)
+weights_cpu /= np.sum(weights_cpu)
+
+weights = ti.field(dtype=ti.f32, shape=len(weights_cpu))
+weights.from_numpy(weights_cpu)
+
+
+@ti.func
+def sense(pos: tm.vec2, sense_angle: float, sense_reach: float) -> float:
+    """Get the color of the pixel at (x, y)."""
+    sense_dir = tm.vec2(ti.cos(sense_angle), ti.sin(sense_angle))
+    sense_center = pos + sense_dir * sense_reach
+    
+    sensor_value = 0.0
+    for i, in ti.static(range(-SENSE_AREA // 2, SENSE_AREA // 2 + 1)):
+        for j in ti.static(range(-SENSE_AREA // 2, SENSE_AREA // 2 + 1)):
+            x = int(tm.round(sense_center[0] + i)) % SIZE[0]
+            y = int(tm.round(sense_center[1] + j)) % SIZE[1]
+            sensor_value += agents_grid[x, y]
+    
+    return sensor_value
+
+
+@ti.kernel
+def update_pos(sense_angle: float, steer_strength: float, sense_reach: float):
+    for i in range(AGENT_COUNT):
+        # Definining values:
+        #  agents[i][0] == x position
+        #  agents[i][1] == y position
+        #  agents[i][2] == angle
+        current_pos = tm.vec2(agents[i][0], agents[i][1])
+        left_sense = sense(current_pos, agents[i][2] - sense_angle, sense_reach)
+        forward_sense = sense(current_pos, agents[i][2], sense_reach)
+        right_sense = sense(current_pos, agents[i][2] + sense_angle, sense_reach)
+
+        rand = ti.random()
+
+        if forward_sense > left_sense and forward_sense > right_sense:
+            # Move forward
+            agents[i][2] += 0.0
+        elif forward_sense < left_sense and forward_sense < right_sense:
+            agents[i][2] += (rand - 0.5) * steer_strength  # Randomly turn left or right
+        elif right_sense > left_sense:
+            agents[i][2] -= rand * steer_strength
+        elif left_sense > right_sense:
+            agents[i][2] += rand * steer_strength
+
+        agents[i][0] += ti.cos(agents[i][2])
+        agents[i][1] += ti.sin(agents[i][2])
+
+        agents[i][0] %= SIZE[0]
+        agents[i][1] %= SIZE[1]
+
+
+@ti.kernel
+def fade(strength: float):
+    for i, j in agents_grid:
+        agents_grid[i, j] *= strength
+
+
+@ti.kernel
+def blur(
+    src: ti.template(),  # either pixels or temp
+    dst: ti.template(),  # either temp or pixels
+    dir_x: ti.f32,
+    dir_y: ti.f32
+):
+    for i, j in dst:
+        acc = 0.0
+        # walk along the given direction
+        for k in ti.static(range(-RADIUS, RADIUS + 1)):
+            x = int(i + k * dir_x)
+            y = int(j + k * dir_y)
+            if 0 <= x < SIZE[0] and 0 <= y < SIZE[1]:
+                acc += src[x, y] * weights[k + RADIUS]
+        dst[i, j] = acc
+
+
+@ti.kernel
+def deposit_trail(color: float):
+    for i in range(AGENT_COUNT):
+        x = int(tm.round(agents[i][0]))
+        y = int(tm.round(agents[i][1]))
+        if 0 <= x < SIZE[0] and 0 <= y < SIZE[1]:
+            agents_grid[x, y] += color
+
+
+def main():
+    gui = ti.GUI("Slime Mold", res=SIZE)
+    
+    steer_strength = 2
+    fade_strength = 0.97
+    sense_angle = np.radians(90)
+    sense_reach = 20
+    
+    count = 0
+    while not gui.get_event(ti.GUI.ESCAPE, ti.GUI.EXIT):
+        if count == 0:
+            steer_strength = np.random.uniform(0.2, 2.0)
+            fade_strength = np.random.uniform(0.97, 0.99)
+            sense_angle = np.radians(np.random.normal(70, 30))
+            sense_reach = np.random.uniform(50, 70)
+            count = 500
+            print(f"Steer Strength: {steer_strength:.2f}, Fade Strength: {fade_strength:.2f}, "
+                  f"Sense Angle: {np.degrees(sense_angle):.2f}°, Sense Reach: {sense_reach:.2f}")
+        
+        update_pos(sense_angle, steer_strength, sense_reach)
+        fade(fade_strength)
+        deposit_trail(COLOR)
+        blur(agents_grid, temp, 1.0, 0.0)
+        blur(temp, agents_grid, 0.0, 1.0)
+        
+        gui.set_image(agents_grid)
+        gui.show()
+        
+        count -= 1
+
+
+if __name__ == "__main__":
+    main()
