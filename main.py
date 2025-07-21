@@ -229,6 +229,7 @@ def main():
     old_cmap = gen_cmap()
     new_cmap = gen_cmap()
 
+    max_count = 200
     count = 0
     while not gui.get_event(ti.GUI.ESCAPE, ti.GUI.EXIT):
         if count <= 0:
@@ -256,10 +257,9 @@ def main():
             print(f"New params → steer: {steer_new:.2f}, fade: {fade_new:.3f}, "
                   f"angle: {np.degrees(angle_new):.1f}°, reach: {reach_new:.1f}")
 
-            count = 500
+            count = max_count
 
-        # compute blend factor 0→1 over 500 frames
-        t_raw = (500 - count) / 500.0
+        t_raw = (max_count - count) / max_count
         t = float(np.clip(t_raw, 0.0, 1.0))
 
         # interpolate each parameter
