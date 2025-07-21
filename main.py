@@ -39,7 +39,7 @@ agents_cpu[:, 2] = np.random.random(AGENT_COUNT) * 2 * np.pi
 agents = ti.field(dtype=tm.vec3, shape=(AGENT_COUNT,))
 agents.from_numpy(agents_cpu)
 
-sigma = 0.3
+sigma = 0.1
 RADIUS = int(np.ceil(sigma * 3))
 
 # precompute 1D Gaussian weights
@@ -289,8 +289,8 @@ def main():
         update_pos(sense_angle, steer_strength, sense_reach)
         fade(fade_strength)
         deposit_trail(COLOR)
-        blur(agents_grid, temp, 1.0, 0.0)
-        blur(temp, agents_grid, 0.0, 1.0)
+        # blur(agents_grid, temp, 1.0, 0.0)
+        # blur(temp, agents_grid, 0.0, 1.0)
 
         # colormap cross‑fade
         render(old_cmap, new_cmap, t)
