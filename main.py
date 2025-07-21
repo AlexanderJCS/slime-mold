@@ -8,7 +8,7 @@ ti.init(arch=ti.gpu)
 
 HEIGHT = 720
 SIZE = (HEIGHT * 9 // 16, HEIGHT)
-AGENT_COUNT = 1000000
+AGENT_COUNT = 10000000
 COLOR = 1500 / AGENT_COUNT
 SENSE_AREA = 5
 CMAP_COLORS = 256  # number of colors in the colormap
@@ -219,49 +219,68 @@ def render(old_cmap: ti.template(), new_cmap: ti.template(), t: float):
 
 def main():
     gui = ti.GUI("Slime Mold", res=SIZE)
-    
-    steer_strength = 2
-    fade_strength = 0.97
-    sense_angle = np.radians(90)
-    sense_reach = 20
-    
+
+    # initial params
+    steer_old = steer_new = 2.0
+    fade_old  = fade_new  = 0.97
+    angle_old = angle_new = np.radians(90)
+    reach_old = reach_new = 20.0
+
     old_cmap = gen_cmap()
     new_cmap = gen_cmap()
-    
+
     count = 0
     while not gui.get_event(ti.GUI.ESCAPE, ti.GUI.EXIT):
-        if count == 0:
-            loop_over = np.random.random() > 0.8
-            high_reach = np.random.random() > 0.2
-            
-            steer_strength = np.random.uniform(0.2, 3.0)
-            fade_strength = np.random.uniform(0.97, 0.99)
-            sense_angle = np.radians(np.clip(
-                np.random.uniform(160, 179) if loop_over else np.random.normal(70, 30),
-                5, 179)
+        if count <= 0:
+            # shift "new"→"old"
+            steer_old,  steer_new  = steer_new,  np.random.uniform(0.2, 3.0)
+            fade_old,   fade_new   = fade_new,   np.random.uniform(0.97, 0.99)
+
+            loop_over   = np.random.random() > 0.8
+            high_reach  = np.random.random() > 0.2
+
+            angle_old, angle_new = angle_new, np.radians(np.clip(
+                np.random.uniform(160, 179) if loop_over
+                else np.random.normal(70, 30),
+                5, 179
+            ))
+
+            reach_old, reach_new = reach_new, (
+                np.random.uniform(20, 40) if high_reach
+                else np.random.uniform(8, 15)
             )
-            sense_reach = np.random.uniform(20, 40) if high_reach else np.random.uniform(8, 15)
-            count = 500
-            
+
             old_cmap = new_cmap
             new_cmap = gen_cmap()
-            
-            print(f"Steer Strength: {steer_strength:.2f}, Fade Strength: {fade_strength:.2f}, "
-                  f"Sense Angle: {np.degrees(sense_angle):.2f}°, Sense Reach: {sense_reach:.2f}")
-        
+
+            print(f"New params → steer: {steer_new:.2f}, fade: {fade_new:.3f}, "
+                  f"angle: {np.degrees(angle_new):.1f}°, reach: {reach_new:.1f}")
+
+            count = 500
+
+        # compute blend factor 0→1 over 500 frames
+        t_raw = (500 - count) / 500.0
+        t = float(np.clip(t_raw, 0.0, 1.0))
+
+        # interpolate each parameter
+        steer_strength = (1 - t) * steer_old  + t * steer_new
+        fade_strength  = (1 - t) * fade_old   + t * fade_new
+        sense_angle    = (1 - t) * angle_old  + t * angle_new
+        sense_reach    = (1 - t) * reach_old  + t * reach_new
+
+        # simulation steps use the interpolated values
         update_pos(sense_angle, steer_strength, sense_reach)
         fade(fade_strength)
         deposit_trail(COLOR)
         blur(agents_grid, temp, 1.0, 0.0)
         blur(temp, agents_grid, 0.0, 1.0)
-        
-        t_raw = (500 - count) / 500.0
-        t = float(np.clip(t_raw, 0.0, 1.0))
+
+        # colormap cross‑fade
         render(old_cmap, new_cmap, t)
-        
+
         gui.set_image(render_img)
         gui.show()
-        
+
         count -= 1
 
 
