@@ -6,12 +6,13 @@ import taichi.math as tm
 
 ti.init(arch=ti.gpu)
 
-HEIGHT = 720
-SIZE = (HEIGHT * 9 // 16, HEIGHT)
-AGENT_COUNT = 10000000
-COLOR = 1500 / AGENT_COUNT
-SENSE_AREA = 5
+HEIGHT = 480
+SIZE = (HEIGHT * 16 // 9, HEIGHT)
+AGENT_COUNT = 5000000
+COLOR = 2000 / AGENT_COUNT
+SENSE_AREA = 3
 CMAP_COLORS = 256  # number of colors in the colormap
+SPEED = 2.0
 
 
 def random_points_in_circle(n, r=1.0):
@@ -105,8 +106,8 @@ def update_pos(sense_angle: float, steer_strength: float, sense_reach: float):
         elif left_sense > right_sense:
             agents[i][2] += rand * steer_strength
             
-        agents[i][0] += cos_agent
-        agents[i][1] += sin_agent
+        agents[i][0] += cos_agent * SPEED
+        agents[i][1] += sin_agent * SPEED
 
         agents[i][0] %= SIZE[0]
         agents[i][1] %= SIZE[1]
@@ -234,7 +235,7 @@ def render(old_cmap: ti.template(), new_cmap: ti.template(), t: float):
         
 
 def main():
-    gui = ti.GUI("Slime Mold", res=SIZE)
+    gui = ti.GUI("Slime Mold", res=SIZE, fast_gui=True)
 
     # initial params
     steer_old = steer_new = 2.0
