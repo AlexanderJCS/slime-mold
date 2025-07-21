@@ -1,3 +1,5 @@
+import colorsys
+
 import numpy as np
 import taichi as ti
 import taichi.math as tm
@@ -9,6 +11,7 @@ SIZE = (HEIGHT * 9 // 16, HEIGHT)
 AGENT_COUNT = 1000000
 COLOR = 1500 / AGENT_COUNT
 SENSE_AREA = 5
+CMAP_COLORS = 256  # number of colors in the colormap
 
 
 def random_points_in_circle(n, r=1.0):
@@ -24,6 +27,7 @@ def random_points_in_circle(n, r=1.0):
 
 agents_grid = ti.field(dtype=ti.f32, shape=SIZE)
 temp = ti.field(dtype=ti.f32, shape=SIZE)
+render_img = ti.field(dtype=tm.vec3, shape=SIZE)
 
 agents_cpu = np.zeros((AGENT_COUNT, 3), dtype=np.float32)
 origins = random_points_in_circle(AGENT_COUNT, r=SIZE[0] // 4)
@@ -125,6 +129,94 @@ def deposit_trail(color: float):
             agents_grid[x, y] += color
 
 
+def interp_hue(h0, h1, t):
+    d = (h1 - h0 + 0.5) % 1.0 - 0.5
+    return (h0 + d * t) % 1.0
+
+
+def random_hcl_colormap(
+        hue_span_min=0.1,
+        hue_span_max=0.2,
+        start_black=True
+):
+    # pick two nearby hues
+    hue1  = np.random.rand()
+    delta = np.random.uniform(hue_span_min, hue_span_max)
+    hue2  = (hue1 + delta) % 1.0
+
+    # 3‑knot: black→hue1→hue2
+    xs             = np.array([0.0, 0.5, 1.0])
+    control_hues   = np.array([hue1,   hue1,   hue2])
+    control_lights = np.array([0.0,     0.6,     0.8])
+    if not start_black:
+        control_lights = 1 - control_lights
+    control_sats   = np.array([0.0,     0.85,    0.85])
+
+    xi = np.linspace(0, 1, CMAP_COLORS)
+
+    # easing function for smooth transitions
+    def smoothstep(t):
+        return t * t * (3.0 - 2.0 * t)
+
+    # minimal‐arc interpolation in hue
+    def interp_hue(h0, h1, t):
+        diff = (h1 - h0 + 0.5) % 1.0 - 0.5
+        return (h0 + diff * t) % 1.0
+
+    # build the colormap
+    cmap = np.zeros((CMAP_COLORS, 3), dtype=np.float32)
+    for i, x in enumerate(xi):
+        # find which segment we're in (0→0.5 or 0.5→1.0)
+        j = 0 if x <= 0.5 else 1
+        t = (x - xs[j]) / (xs[j+1] - xs[j])
+        t_e = smoothstep(t)
+
+        # interpolate H, L, S
+        h = interp_hue(control_hues[j], control_hues[j+1], t)
+        # apply gamma to lightness for a subtle pop
+        l0, l1 = control_lights[j], control_lights[j+1]
+        l = ((1 - t_e) * (l0 ** 1.1) + t_e * (l1 ** 1.1)) ** (1/1.1)
+        s0, s1 = control_sats[j], control_sats[j+1]
+        s = (1 - t_e) * s0 + t_e * s1
+
+        cmap[i] = colorsys.hls_to_rgb(h, l, s)
+
+    return cmap
+
+
+def gen_cmap():
+    cmap_cpu = random_hcl_colormap(start_black=True)
+    cmap = ti.field(dtype=tm.vec3, shape=(CMAP_COLORS,))
+    cmap.from_numpy(cmap_cpu)
+    
+    return cmap
+
+
+@ti.func
+def interp_cmap(cmap: ti.template(), value: float) -> tm.vec3:
+    """Interpolate between two colors in the colormap based on the value."""
+    idx_f = value * (CMAP_COLORS - 1)
+    idx = int(idx_f)
+    frac = idx_f - idx
+    c0 = cmap[idx]
+    c1 = cmap[ti.min(idx + 1, CMAP_COLORS - 1)]
+    return tm.mix(c0, c1, frac)
+
+
+@ti.kernel
+def render(old_cmap: ti.template(), new_cmap: ti.template(), t: float):
+    # cmap is assumed to be a ti.field(dtype=tm.vec3, shape=N)
+    
+    for i, j in agents_grid:
+        value = agents_grid[i, j]
+        tonemapped = value / (value + 1)  # Reinhard tonemapping
+        old_color = interp_cmap(old_cmap, tonemapped)
+        new_color = interp_cmap(new_cmap, tonemapped)
+        gui_color = tm.mix(old_color, new_color, t)
+        
+        render_img[i, j] = gui_color
+        
+
 def main():
     gui = ti.GUI("Slime Mold", res=SIZE)
     
@@ -133,14 +225,27 @@ def main():
     sense_angle = np.radians(90)
     sense_reach = 20
     
+    old_cmap = gen_cmap()
+    new_cmap = gen_cmap()
+    
     count = 0
     while not gui.get_event(ti.GUI.ESCAPE, ti.GUI.EXIT):
         if count == 0:
-            steer_strength = np.random.uniform(0.2, 2.0)
+            loop_over = np.random.random() > 0.8
+            high_reach = np.random.random() > 0.2
+            
+            steer_strength = np.random.uniform(0.2, 3.0)
             fade_strength = np.random.uniform(0.97, 0.99)
-            sense_angle = np.radians(np.random.normal(70, 30))
-            sense_reach = np.random.uniform(50, 70)
+            sense_angle = np.radians(np.clip(
+                np.random.uniform(160, 179) if loop_over else np.random.normal(70, 30),
+                5, 179)
+            )
+            sense_reach = np.random.uniform(20, 40) if high_reach else np.random.uniform(8, 15)
             count = 500
+            
+            old_cmap = new_cmap
+            new_cmap = gen_cmap()
+            
             print(f"Steer Strength: {steer_strength:.2f}, Fade Strength: {fade_strength:.2f}, "
                   f"Sense Angle: {np.degrees(sense_angle):.2f}°, Sense Reach: {sense_reach:.2f}")
         
@@ -150,7 +255,11 @@ def main():
         blur(agents_grid, temp, 1.0, 0.0)
         blur(temp, agents_grid, 0.0, 1.0)
         
-        gui.set_image(agents_grid)
+        t_raw = (500 - count) / 500.0
+        t = float(np.clip(t_raw, 0.0, 1.0))
+        render(old_cmap, new_cmap, t)
+        
+        gui.set_image(render_img)
         gui.show()
         
         count -= 1
