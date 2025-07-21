@@ -251,7 +251,7 @@ def main():
     while not gui.get_event(ti.GUI.ESCAPE, ti.GUI.EXIT):
         if count <= 0:
             # shift "new"→"old"
-            steer_old,  steer_new  = steer_new,  np.random.uniform(0.2, 3.0)
+            steer_old,  steer_new  = steer_new,  np.random.uniform(1.0, 3.0) if np.random.random() > 0.5 else np.random.uniform(0.2, 0.6)
             fade_old,   fade_new   = fade_new,   np.random.uniform(0.97, 0.99)
 
             loop_over   = np.random.random() > 0.8
