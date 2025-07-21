@@ -50,18 +50,23 @@ weights.from_numpy(weights_cpu)
 
 
 @ti.func
-def sense(pos: tm.vec2, sense_angle: float, sense_reach: float) -> float:
-    """Get the color of the pixel at (x, y)."""
-    sense_dir = tm.vec2(ti.cos(sense_angle), ti.sin(sense_angle))
+def sense(pos: tm.vec2, cos_angle: float, sin_angle: float, sense_reach: float) -> float:
+    """Optimized sensing using precomputed sin/cos values."""
+    sense_dir = tm.vec2(cos_angle, sin_angle)
     sense_center = pos + sense_dir * sense_reach
-    
+
+    # Define sensing area bounds
+    x_start = int(tm.round(sense_center[0] - SENSE_AREA // 2)) % SIZE[0]
+    x_end = int(tm.round(sense_center[0] + SENSE_AREA // 2)) % SIZE[0]
+    y_start = int(tm.round(sense_center[1] - SENSE_AREA // 2)) % SIZE[1]
+    y_end = int(tm.round(sense_center[1] + SENSE_AREA // 2)) % SIZE[1]
+
+    # Accumulate sensor values directly
     sensor_value = 0.0
-    for i, in ti.static(range(-SENSE_AREA // 2, SENSE_AREA // 2 + 1)):
-        for j in ti.static(range(-SENSE_AREA // 2, SENSE_AREA // 2 + 1)):
-            x = int(tm.round(sense_center[0] + i)) % SIZE[0]
-            y = int(tm.round(sense_center[1] + j)) % SIZE[1]
-            sensor_value += agents_grid[x, y]
-    
+    for x in range(x_start, x_end + 1):
+        for y in range(y_start, y_end + 1):
+            sensor_value += agents_grid[x % SIZE[0], y % SIZE[1]]
+
     return sensor_value
 
 
@@ -73,9 +78,20 @@ def update_pos(sense_angle: float, steer_strength: float, sense_reach: float):
         #  agents[i][1] == y position
         #  agents[i][2] == angle
         current_pos = tm.vec2(agents[i][0], agents[i][1])
-        left_sense = sense(current_pos, agents[i][2] - sense_angle, sense_reach)
-        forward_sense = sense(current_pos, agents[i][2], sense_reach)
-        right_sense = sense(current_pos, agents[i][2] + sense_angle, sense_reach)
+        
+        # Precompute trigonometric values once per agent
+        agent_angle = agents[i][2]
+        cos_agent = ti.cos(agent_angle)
+        sin_agent = ti.sin(agent_angle)
+        cos_left = ti.cos(agent_angle - sense_angle)
+        sin_left = ti.sin(agent_angle - sense_angle)
+        cos_right = ti.cos(agent_angle + sense_angle)
+        sin_right = ti.sin(agent_angle + sense_angle)
+        
+        # Use precomputed values for sensing
+        left_sense = sense(current_pos, cos_left, sin_left, sense_reach)
+        forward_sense = sense(current_pos, cos_agent, sin_agent, sense_reach)
+        right_sense = sense(current_pos, cos_right, sin_right, sense_reach)
 
         rand = ti.random()
 
@@ -88,9 +104,9 @@ def update_pos(sense_angle: float, steer_strength: float, sense_reach: float):
             agents[i][2] -= rand * steer_strength
         elif left_sense > right_sense:
             agents[i][2] += rand * steer_strength
-
-        agents[i][0] += ti.cos(agents[i][2])
-        agents[i][1] += ti.sin(agents[i][2])
+            
+        agents[i][0] += cos_agent
+        agents[i][1] += sin_agent
 
         agents[i][0] %= SIZE[0]
         agents[i][1] %= SIZE[1]
