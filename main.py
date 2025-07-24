@@ -52,7 +52,7 @@ weights.from_numpy(weights_cpu)
 
 @ti.func
 def sense(pos: tm.vec2, cos_angle: float, sin_angle: float, sense_reach: float) -> float:
-    """Optimized sensing using precomputed sin/cos values."""
+    # sourcery skip: use-itertools-product
     sense_dir = tm.vec2(cos_angle, sin_angle)
     sense_center = pos + sense_dir * sense_reach
 
@@ -146,9 +146,13 @@ def deposit_trail(color: float):
             agents_grid[x, y] += color
 
 
+def smoothstep(t):
+    return t**2 * (3.0 - 2.0 * t)
+    
+
 def interp_hue(h0, h1, t):
-    d = (h1 - h0 + 0.5) % 1.0 - 0.5
-    return (h0 + d * t) % 1.0
+    diff = (h1 - h0 + 0.5) % 1.0 - 0.5
+    return (h0 + diff * t) % 1.0
 
 
 def random_hcl_colormap(
@@ -157,28 +161,19 @@ def random_hcl_colormap(
         start_black=True
 ):
     # pick two nearby hues
-    hue1  = np.random.rand()
+    hue1 = np.random.rand()
     delta = np.random.uniform(hue_span_min, hue_span_max)
-    hue2  = (hue1 + delta) % 1.0
+    hue2 = (hue1 + delta) % 1.0
 
     # 3‑knot: black→hue1→hue2
-    xs             = np.array([0.0, 0.5, 1.0])
-    control_hues   = np.array([hue1,   hue1,   hue2])
+    xs = np.array([0.0, 0.5, 1.0])
+    control_hues = np.array([hue1,   hue1,   hue2])
     control_lights = np.array([0.0,     0.6,     0.8])
     if not start_black:
         control_lights = 1 - control_lights
-    control_sats   = np.array([0.0,     0.85,    0.85])
+    control_sats = np.array([0.0,     0.85,    0.85])
 
     xi = np.linspace(0, 1, CMAP_COLORS)
-
-    # easing function for smooth transitions
-    def smoothstep(t):
-        return t * t * (3.0 - 2.0 * t)
-
-    # minimal‐arc interpolation in hue
-    def interp_hue(h0, h1, t):
-        diff = (h1 - h0 + 0.5) % 1.0 - 0.5
-        return (h0 + diff * t) % 1.0
 
     # build the colormap
     cmap = np.zeros((CMAP_COLORS, 3), dtype=np.float32)
@@ -239,7 +234,7 @@ def main():
 
     # initial params
     steer_old = steer_new = 2.0
-    fade_old  = fade_new  = 0.97
+    fade_old = fade_new = 0.97
     angle_old = angle_new = np.radians(90)
     reach_old = reach_new = 20.0
 
@@ -251,11 +246,16 @@ def main():
     while not gui.get_event(ti.GUI.ESCAPE, ti.GUI.EXIT):
         if count <= 0:
             # shift "new"→"old"
-            steer_old,  steer_new  = steer_new,  np.random.uniform(1.0, 3.0) if np.random.random() > 0.5 else np.random.uniform(0.2, 0.6)
-            fade_old,   fade_new   = fade_new,   np.random.uniform(0.97, 0.99)
+            steer_old, steer_new = (
+                steer_new,  np.random.uniform(1.0, 3.0)
+                if np.random.random() > 0.5
+                else np.random.uniform(0.2, 0.6)
+            )
+            
+            fade_old, fade_new = fade_new,   np.random.uniform(0.97, 0.99)
 
-            loop_over   = np.random.random() > 0.8
-            high_reach  = np.random.random() > 0.4
+            loop_over = np.random.random() > 0.8
+            high_reach = np.random.random() > 0.4
 
             angle_old, angle_new = angle_new, np.radians(np.clip(
                 np.random.uniform(160, 179) if loop_over
@@ -280,10 +280,10 @@ def main():
         t = float(np.clip(t_raw, 0.0, 1.0))
 
         # interpolate each parameter
-        steer_strength = (1 - t) * steer_old  + t * steer_new
-        fade_strength  = (1 - t) * fade_old   + t * fade_new
-        sense_angle    = (1 - t) * angle_old  + t * angle_new
-        sense_reach    = (1 - t) * reach_old  + t * reach_new
+        steer_strength = (1 - t) * steer_old + t * steer_new
+        fade_strength = (1 - t) * fade_old + t * fade_new
+        sense_angle = (1 - t) * angle_old + t * angle_new
+        sense_reach = (1 - t) * reach_old + t * reach_new
 
         # simulation steps use the interpolated values
         update_pos(sense_angle, steer_strength, sense_reach)
