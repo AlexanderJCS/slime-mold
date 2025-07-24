@@ -6,13 +6,13 @@ import taichi.math as tm
 
 ti.init(arch=ti.gpu)
 
-HEIGHT = 480
-SIZE = (HEIGHT * 16 // 9, HEIGHT)
-AGENT_COUNT = 5000000
-COLOR = 2000 / AGENT_COUNT
+HEIGHT = 1080
+SIZE = (HEIGHT * 9 // 16, HEIGHT)
+AGENT_COUNT = 10000000
+COLOR = 2500 / AGENT_COUNT
 SENSE_AREA = 3
-CMAP_COLORS = 256  # number of colors in the colormap
-SPEED = 2.0
+CMAP_COLORS = 6  # number of colors in the colormap
+SPEED = 2.5
 
 
 def random_points_in_circle(n, r=1.0):
