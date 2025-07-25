@@ -21,18 +21,34 @@ def random_points_in_circle(n, r=1.0):
     return np.column_stack((x, y))
 
 
-agents_grid = ti.field(dtype=ti.f32, shape=config.SIZE)
-temp = ti.field(dtype=ti.f32, shape=config.SIZE)
-render_img = ti.field(dtype=tm.vec3, shape=config.SIZE)
+agents_grid_cpu = np.zeros(config.GRID_SIZE, dtype=np.float32)
 
-agents_cpu = np.zeros((config.AGENT_COUNT, 3), dtype=np.float32)
-origins = random_points_in_circle(config.AGENT_COUNT, r=config.SIZE[0] // 4)
-agents_cpu[:, 0] = origins[:, 0] + config.SIZE[0] // 2
-agents_cpu[:, 1] = origins[:, 1] + config.SIZE[1] // 2
-agents_cpu[:, 2] = np.random.random(config.AGENT_COUNT) * 2 * np.pi
+# Define center and radius
+center = np.array(config.GRID_SIZE) // 2
+radius = min(config.GRID_SIZE) // 4  # Adjust as needed
 
-agents = ti.field(dtype=tm.vec3, shape=(config.AGENT_COUNT,))
-agents.from_numpy(agents_cpu)
+# Create coordinate grid
+z, y, x = np.indices(config.GRID_SIZE)
+distance_squared = ((x - center[2])**2 +
+                    (y - center[1])**2 +
+                    (z - center[0])**2)
+
+# Fill sphere
+agents_grid_cpu[distance_squared <= radius**2] = 1.0
+
+agents_grid = ti.field(dtype=ti.f32, shape=config.GRID_SIZE)
+agents_grid.from_numpy(agents_grid_cpu)
+temp = ti.field(dtype=ti.f32, shape=config.GRID_SIZE)
+render_img = ti.field(dtype=tm.vec3, shape=config.RESOLUTION)
+
+# agents_cpu = np.zeros((config.AGENT_COUNT, 3), dtype=np.float32)
+# origins = random_points_in_circle(config.AGENT_COUNT, r=config.SIZE[0] // 4)
+# agents_cpu[:, 0] = origins[:, 0] + config.SIZE[0] // 2
+# agents_cpu[:, 1] = origins[:, 1] + config.SIZE[1] // 2
+# agents_cpu[:, 2] = np.random.random(config.AGENT_COUNT) * 2 * np.pi
+#
+# agents = ti.field(dtype=tm.vec3, shape=(config.AGENT_COUNT,))
+# agents.from_numpy(agents_cpu)
 
 sigma = 0.2
 RADIUS = int(np.ceil(sigma * 3))
@@ -225,7 +241,7 @@ def render(old_cmap: ti.template(), new_cmap: ti.template(), t: float):
         
 
 def main():
-    gui = ti.GUI("Slime Mold", res=config.SIZE, fast_gui=True)
+    gui = ti.GUI("Slime Mold", res=config.RESOLUTION, fast_gui=True)
 
     # initial params
     steer_old = steer_new = 2.0
@@ -290,7 +306,7 @@ def main():
         # # colormap cross‑fade
         # render(old_cmap, new_cmap, t)
 
-        rendering.render_3d(render_img, agents)
+        rendering.render_3d(render_img, agents_grid)
 
         gui.set_image(render_img)
         gui.show()

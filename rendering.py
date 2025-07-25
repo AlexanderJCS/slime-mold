@@ -21,7 +21,7 @@ camera_v = tm.vec3(normalize(np.cross(camera_w, camera_u)))
 
 camera_theta = fov / 2.0
 camera_half_height = np.tan(camera_theta)
-camera_half_width = camera_half_height * config.SIZE[0] / config.SIZE[1]
+camera_half_width = camera_half_height * config.RESOLUTION[0] / config.RESOLUTION[1]
 
 
 @ti.func
@@ -29,8 +29,8 @@ def start_ray(x: int, y: int) -> tm.vec3:
     horizontal = 2 * camera_half_width * camera_u
     vertical = 2 * camera_half_height * camera_v
     
-    u_s = (x + 0.5) / config.SIZE[0]
-    v_s = (y + 0.5) / config.SIZE[1]
+    u_s = (x + 0.5) / config.RESOLUTION[0]
+    v_s = (y + 0.5) / config.RESOLUTION[1]
     
     lower_left = camera_pos - camera_half_width * camera_u - camera_half_height * camera_v - camera_w
     
@@ -93,3 +93,20 @@ def render_3d(output: ti.template(), volume: ti.template()):
             output[i, j] = tm.vec3(0.0, 0.0, 0.0)
         else:
             output[i, j] = tm.vec3(cube_t_max - cube_t_min)
+        
+        dist_through_cube = cube_t_max - cube_t_min
+        num_samples = ti.static(100)
+        
+        step_size = dist_through_cube / num_samples
+        position = ray_origin + cube_t_min * ray_dir
+        color = tm.vec3(0.0, 0.0, 0.0)
+        for sample in range(num_samples):
+            sample_pos = position + sample * step_size * ray_dir
+            
+            # Convert to grid coordinates
+            grid = tm.ivec3(tm.floor((sample_pos + 0.5) * volume.shape))
+            if all(grid >= 0) and all(grid < volume.shape):
+                color += volume[int(grid[0]), int(grid[1]), int(grid[2])]
+        
+        color /= num_samples
+        output[i, j] = tm.clamp(color, 0.0, 1.0)
