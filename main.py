@@ -10,45 +10,41 @@ import taichi.math as tm
 ti.init(arch=ti.gpu)
 
 
-def random_points_in_circle(n, r=1.0):
-    # random angles
-    theta = np.random.uniform(0, 2 * np.pi, n)
-    # radii with √ to ensure uniform area density
-    r = np.sqrt(np.random.uniform(0, 1, n)) * r
+def random_points_in_sphere(n, r=1.0):
+    # Random angles
+    theta = np.random.uniform(0, 2 * np.pi, n)  # Azimuthal angle
+    phi = np.arccos(1 - 2 * np.random.uniform(0, 1, n))  # Polar angle
+    # Radii with √³ to ensure uniform volume density
+    radius = np.cbrt(np.random.uniform(0, 1, n)) * r
 
-    x = r * np.cos(theta)
-    y = r * np.sin(theta)
-    return np.column_stack((x, y))
+    x = radius * np.sin(phi) * np.cos(theta)
+    y = radius * np.sin(phi) * np.sin(theta)
+    z = radius * np.cos(phi)
+    return np.column_stack((x, y, z))
 
-
-agents_grid_cpu = np.zeros(config.GRID_SIZE, dtype=np.float32)
-
-# Define center and radius
-center = np.array(config.GRID_SIZE) // 2
-radius = min(config.GRID_SIZE) // 4  # Adjust as needed
-
-# Create coordinate grid
-z, y, x = np.indices(config.GRID_SIZE)
-distance_squared = ((x - center[2])**2 +
-                    (y - center[1])**2 +
-                    (z - center[0])**2)
-
-# Fill sphere
-agents_grid_cpu[distance_squared <= radius**2] = 1.0
 
 agents_grid = ti.field(dtype=ti.f32, shape=config.GRID_SIZE)
-agents_grid.from_numpy(agents_grid_cpu)
 temp = ti.field(dtype=ti.f32, shape=config.GRID_SIZE)
 render_img = ti.field(dtype=tm.vec3, shape=config.RESOLUTION)
 
-# agents_cpu = np.zeros((config.AGENT_COUNT, 3), dtype=np.float32)
-# origins = random_points_in_circle(config.AGENT_COUNT, r=config.SIZE[0] // 4)
-# agents_cpu[:, 0] = origins[:, 0] + config.SIZE[0] // 2
-# agents_cpu[:, 1] = origins[:, 1] + config.SIZE[1] // 2
-# agents_cpu[:, 2] = np.random.random(config.AGENT_COUNT) * 2 * np.pi
-#
-# agents = ti.field(dtype=tm.vec3, shape=(config.AGENT_COUNT,))
-# agents.from_numpy(agents_cpu)
+
+Agent = ti.types.struct(
+    position=ti.types.vector(3, ti.f32),  # 3D position
+    angles=ti.types.vector(2, ti.f32)  # pitch, yaw angles
+)
+
+
+agents_cpu = np.zeros((config.AGENT_COUNT,), dtype=np.dtype([
+    ('position', np.float32, 3),  # x, y, z position
+    ('angles', np.float32, 2)  # angle in radians
+]))
+
+origins = random_points_in_sphere(config.AGENT_COUNT, r=config.GRID_SIZE[0] // 4)
+agents_cpu[:]["position"] = origins + config.GRID_SIZE[0] // 2
+agents_cpu[:]["angles"] = np.random.uniform(0, 2 * np.pi, (config.AGENT_COUNT, 2))
+
+agents = Agent.field(shape=(config.AGENT_COUNT,))
+agents.from_numpy(agents_cpu)
 
 sigma = 0.2
 RADIUS = int(np.ceil(sigma * 3))
@@ -62,7 +58,7 @@ weights.from_numpy(weights_cpu)
 
 
 @ti.func
-def sense(pos: tm.vec2, cos_angle: float, sin_angle: float, sense_reach: float) -> float:
+def sense(pos: tm.vec3, cos_angle: float, sin_angle: float, sense_reach: float) -> float:
     # sourcery skip: use-itertools-product
     sense_dir = tm.vec2(cos_angle, sin_angle)
     sense_center = pos + sense_dir * sense_reach
