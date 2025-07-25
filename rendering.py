@@ -10,7 +10,7 @@ def normalize(v):
 
 
 look_at = tm.vec3(0.0, 0.0, 0.0)
-camera_pos = tm.vec3(2.0, 2.0, 2.0)
+camera_pos = tm.vec3(0.0, 0.0, 2.0)
 fov = np.radians(45.0)
 
 camera_w = tm.vec3(normalize(camera_pos - look_at))
