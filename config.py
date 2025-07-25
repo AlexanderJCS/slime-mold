@@ -1,0 +1,7 @@
+HEIGHT = 1080
+SIZE = (HEIGHT * 9 // 16, HEIGHT)
+AGENT_COUNT = 10000000
+COLOR = 2500 / AGENT_COUNT
+SENSE_AREA = 3
+CMAP_COLORS = 6  # number of colors in the colormap
+SPEED = 2.5

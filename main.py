@@ -1,3 +1,6 @@
+import config
+import rendering
+
 import colorsys
 
 import numpy as np
@@ -5,14 +8,6 @@ import taichi as ti
 import taichi.math as tm
 
 ti.init(arch=ti.gpu)
-
-HEIGHT = 1080
-SIZE = (HEIGHT * 9 // 16, HEIGHT)
-AGENT_COUNT = 10000000
-COLOR = 2500 / AGENT_COUNT
-SENSE_AREA = 3
-CMAP_COLORS = 6  # number of colors in the colormap
-SPEED = 2.5
 
 
 def random_points_in_circle(n, r=1.0):
@@ -26,17 +21,17 @@ def random_points_in_circle(n, r=1.0):
     return np.column_stack((x, y))
 
 
-agents_grid = ti.field(dtype=ti.f32, shape=SIZE)
-temp = ti.field(dtype=ti.f32, shape=SIZE)
-render_img = ti.field(dtype=tm.vec3, shape=SIZE)
+agents_grid = ti.field(dtype=ti.f32, shape=config.SIZE)
+temp = ti.field(dtype=ti.f32, shape=config.SIZE)
+render_img = ti.field(dtype=tm.vec3, shape=config.SIZE)
 
-agents_cpu = np.zeros((AGENT_COUNT, 3), dtype=np.float32)
-origins = random_points_in_circle(AGENT_COUNT, r=SIZE[0] // 4)
-agents_cpu[:, 0] = origins[:, 0] + SIZE[0] // 2
-agents_cpu[:, 1] = origins[:, 1] + SIZE[1] // 2
-agents_cpu[:, 2] = np.random.random(AGENT_COUNT) * 2 * np.pi
+agents_cpu = np.zeros((config.AGENT_COUNT, 3), dtype=np.float32)
+origins = random_points_in_circle(config.AGENT_COUNT, r=config.SIZE[0] // 4)
+agents_cpu[:, 0] = origins[:, 0] + config.SIZE[0] // 2
+agents_cpu[:, 1] = origins[:, 1] + config.SIZE[1] // 2
+agents_cpu[:, 2] = np.random.random(config.AGENT_COUNT) * 2 * np.pi
 
-agents = ti.field(dtype=tm.vec3, shape=(AGENT_COUNT,))
+agents = ti.field(dtype=tm.vec3, shape=(config.AGENT_COUNT,))
 agents.from_numpy(agents_cpu)
 
 sigma = 0.2
@@ -57,23 +52,23 @@ def sense(pos: tm.vec2, cos_angle: float, sin_angle: float, sense_reach: float) 
     sense_center = pos + sense_dir * sense_reach
 
     # Define sensing area bounds
-    x_start = int(tm.round(sense_center[0] - SENSE_AREA // 2)) % SIZE[0]
-    x_end = int(tm.round(sense_center[0] + SENSE_AREA // 2)) % SIZE[0]
-    y_start = int(tm.round(sense_center[1] - SENSE_AREA // 2)) % SIZE[1]
-    y_end = int(tm.round(sense_center[1] + SENSE_AREA // 2)) % SIZE[1]
+    x_start = int(tm.round(sense_center[0] - config.SENSE_AREA // 2)) % config.SIZE[0]
+    x_end = int(tm.round(sense_center[0] + config.SENSE_AREA // 2)) % config.SIZE[0]
+    y_start = int(tm.round(sense_center[1] - config.SENSE_AREA // 2)) % config.SIZE[1]
+    y_end = int(tm.round(sense_center[1] + config.SENSE_AREA // 2)) % config.SIZE[1]
 
     # Accumulate sensor values directly
     sensor_value = 0.0
     for x in range(x_start, x_end + 1):
         for y in range(y_start, y_end + 1):
-            sensor_value += agents_grid[x % SIZE[0], y % SIZE[1]]
+            sensor_value += agents_grid[x % config.SIZE[0], y % config.SIZE[1]]
 
     return sensor_value
 
 
 @ti.kernel
 def update_pos(sense_angle: float, steer_strength: float, sense_reach: float):
-    for i in range(AGENT_COUNT):
+    for i in range(config.AGENT_COUNT):
         # Definining values:
         #  agents[i][0] == x position
         #  agents[i][1] == y position
@@ -106,11 +101,11 @@ def update_pos(sense_angle: float, steer_strength: float, sense_reach: float):
         elif left_sense > right_sense:
             agents[i][2] += rand * steer_strength
             
-        agents[i][0] += cos_agent * SPEED
-        agents[i][1] += sin_agent * SPEED
+        agents[i][0] += cos_agent * config.SPEED
+        agents[i][1] += sin_agent * config.SPEED
 
-        agents[i][0] %= SIZE[0]
-        agents[i][1] %= SIZE[1]
+        agents[i][0] %= config.SIZE[0]
+        agents[i][1] %= config.SIZE[1]
 
 
 @ti.kernel
@@ -132,17 +127,17 @@ def blur(
         for k in ti.static(range(-RADIUS, RADIUS + 1)):
             x = int(i + k * dir_x)
             y = int(j + k * dir_y)
-            if 0 <= x < SIZE[0] and 0 <= y < SIZE[1]:
+            if 0 <= x < config.SIZE[0] and 0 <= y < config.SIZE[1]:
                 acc += src[x, y] * weights[k + RADIUS]
         dst[i, j] = acc
 
 
 @ti.kernel
 def deposit_trail(color: float):
-    for i in range(AGENT_COUNT):
+    for i in range(config.AGENT_COUNT):
         x = int(tm.round(agents[i][0]))
         y = int(tm.round(agents[i][1]))
-        if 0 <= x < SIZE[0] and 0 <= y < SIZE[1]:
+        if 0 <= x < config.SIZE[0] and 0 <= y < config.SIZE[1]:
             agents_grid[x, y] += color
 
 
@@ -173,10 +168,10 @@ def random_hcl_colormap(
         control_lights = 1 - control_lights
     control_sats = np.array([0.0,     0.85,    0.85])
 
-    xi = np.linspace(0, 1, CMAP_COLORS)
+    xi = np.linspace(0, 1, config.CMAP_COLORS)
 
     # build the colormap
-    cmap = np.zeros((CMAP_COLORS, 3), dtype=np.float32)
+    cmap = np.zeros((config.CMAP_COLORS, 3), dtype=np.float32)
     for i, x in enumerate(xi):
         # find which segment we're in (0→0.5 or 0.5→1.0)
         j = 0 if x <= 0.5 else 1
@@ -198,7 +193,7 @@ def random_hcl_colormap(
 
 def gen_cmap():
     cmap_cpu = random_hcl_colormap(start_black=True)
-    cmap = ti.field(dtype=tm.vec3, shape=(CMAP_COLORS,))
+    cmap = ti.field(dtype=tm.vec3, shape=(config.CMAP_COLORS,))
     cmap.from_numpy(cmap_cpu)
     
     return cmap
@@ -207,11 +202,11 @@ def gen_cmap():
 @ti.func
 def interp_cmap(cmap: ti.template(), value: float) -> tm.vec3:
     """Interpolate between two colors in the colormap based on the value."""
-    idx_f = value * (CMAP_COLORS - 1)
+    idx_f = value * (config.CMAP_COLORS - 1)
     idx = int(idx_f)
     frac = idx_f - idx
     c0 = cmap[idx]
-    c1 = cmap[ti.min(idx + 1, CMAP_COLORS - 1)]
+    c1 = cmap[ti.min(idx + 1, config.CMAP_COLORS - 1)]
     return tm.mix(c0, c1, frac)
 
 
@@ -230,7 +225,7 @@ def render(old_cmap: ti.template(), new_cmap: ti.template(), t: float):
         
 
 def main():
-    gui = ti.GUI("Slime Mold", res=SIZE, fast_gui=True)
+    gui = ti.GUI("Slime Mold", res=config.SIZE, fast_gui=True)
 
     # initial params
     steer_old = steer_new = 2.0
@@ -244,56 +239,58 @@ def main():
     max_count = 200
     count = 0
     while not gui.get_event(ti.GUI.ESCAPE, ti.GUI.EXIT):
-        if count <= 0:
-            # shift "new"→"old"
-            steer_old, steer_new = (
-                steer_new,  np.random.uniform(1.0, 3.0)
-                if np.random.random() > 0.5
-                else np.random.uniform(0.2, 0.6)
-            )
-            
-            fade_old, fade_new = fade_new,   np.random.uniform(0.97, 0.99)
+        # if count <= 0:
+        #     # shift "new"→"old"
+        #     steer_old, steer_new = (
+        #         steer_new,  np.random.uniform(1.0, 3.0)
+        #         if np.random.random() > 0.5
+        #         else np.random.uniform(0.2, 0.6)
+        #     )
+        #
+        #     fade_old, fade_new = fade_new,   np.random.uniform(0.97, 0.99)
+        #
+        #     loop_over = np.random.random() > 0.8
+        #     high_reach = np.random.random() > 0.4
+        #
+        #     angle_old, angle_new = angle_new, np.radians(np.clip(
+        #         np.random.uniform(160, 179) if loop_over
+        #         else np.random.normal(70, 30),
+        #         5, 179
+        #     ))
+        #
+        #     reach_old, reach_new = reach_new, (
+        #         np.random.uniform(20, 40) if high_reach
+        #         else np.random.uniform(8, 15)
+        #     )
+        #
+        #     old_cmap = new_cmap
+        #     new_cmap = gen_cmap()
+        #
+        #     print(f"New params → steer: {steer_new:.2f}, fade: {fade_new:.3f}, "
+        #           f"angle: {np.degrees(angle_new):.1f}°, reach: {reach_new:.1f}")
+        #
+        #     count = max_count
+        #
+        # t_raw = (max_count - count) / max_count
+        # t = float(np.clip(t_raw, 0.0, 1.0))
+        #
+        # # interpolate each parameter
+        # steer_strength = (1 - t) * steer_old + t * steer_new
+        # fade_strength = (1 - t) * fade_old + t * fade_new
+        # sense_angle = (1 - t) * angle_old + t * angle_new
+        # sense_reach = (1 - t) * reach_old + t * reach_new
+        #
+        # # simulation steps use the interpolated values
+        # update_pos(sense_angle, steer_strength, sense_reach)
+        # fade(fade_strength)
+        # deposit_trail(config.COLOR)
+        # blur(agents_grid, temp, 1.0, 0.0)
+        # blur(temp, agents_grid, 0.0, 1.0)
+        #
+        # # colormap cross‑fade
+        # render(old_cmap, new_cmap, t)
 
-            loop_over = np.random.random() > 0.8
-            high_reach = np.random.random() > 0.4
-
-            angle_old, angle_new = angle_new, np.radians(np.clip(
-                np.random.uniform(160, 179) if loop_over
-                else np.random.normal(70, 30),
-                5, 179
-            ))
-
-            reach_old, reach_new = reach_new, (
-                np.random.uniform(20, 40) if high_reach
-                else np.random.uniform(8, 15)
-            )
-
-            old_cmap = new_cmap
-            new_cmap = gen_cmap()
-
-            print(f"New params → steer: {steer_new:.2f}, fade: {fade_new:.3f}, "
-                  f"angle: {np.degrees(angle_new):.1f}°, reach: {reach_new:.1f}")
-
-            count = max_count
-
-        t_raw = (max_count - count) / max_count
-        t = float(np.clip(t_raw, 0.0, 1.0))
-
-        # interpolate each parameter
-        steer_strength = (1 - t) * steer_old + t * steer_new
-        fade_strength = (1 - t) * fade_old + t * fade_new
-        sense_angle = (1 - t) * angle_old + t * angle_new
-        sense_reach = (1 - t) * reach_old + t * reach_new
-
-        # simulation steps use the interpolated values
-        update_pos(sense_angle, steer_strength, sense_reach)
-        fade(fade_strength)
-        deposit_trail(COLOR)
-        blur(agents_grid, temp, 1.0, 0.0)
-        blur(temp, agents_grid, 0.0, 1.0)
-
-        # colormap cross‑fade
-        render(old_cmap, new_cmap, t)
+        rendering.render_3d(render_img, agents)
 
         gui.set_image(render_img)
         gui.show()
