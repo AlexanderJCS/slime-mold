@@ -24,7 +24,7 @@ def random_points_in_sphere(n, r=1.0):
 
 
 agents_grid = ti.field(dtype=ti.f32, shape=config.GRID_SIZE)
-temp = ti.field(dtype=ti.f32, shape=config.GRID_SIZE)
+agents_grid_temp = ti.field(dtype=ti.f32, shape=config.GRID_SIZE)
 render_img = ti.field(dtype=tm.vec3, shape=config.RESOLUTION)
 
 
@@ -65,7 +65,7 @@ def gen_agents():
 
 
 @ti.func
-def sense(pos: tm.vec3, angle: tm.vec2, sense_reach) -> float:
+def sense(img: ti.template(), pos: tm.vec3, angle: tm.vec2, sense_reach) -> float:
     sense_dir = pitch_yaw_to_vec(angle)
     sense_center = pos + sense_dir * sense_reach
     
@@ -77,7 +77,7 @@ def sense(pos: tm.vec3, angle: tm.vec2, sense_reach) -> float:
              for y in (-1, 0, 1)
              for z in (-1, 0, 1)]):
         sense_pos = tm.round(sense_center + tm.vec3(dx, dy, dz)) % config.GRID_SIZE
-        sensor_value += agents_grid[int(sense_pos.x), int(sense_pos.y), int(sense_pos.z)]
+        sensor_value += img[int(sense_pos.x), int(sense_pos.y), int(sense_pos.z)]
 
     return sensor_value
 
@@ -96,17 +96,17 @@ def pitch_yaw_to_vec(angles: tm.vec2) -> tm.vec3:
 
 
 @ti.kernel
-def update_pos(sense_angle: float, steer_strength: float, sense_reach: float):
+def update_pos(img: ti.template(), sense_angle: float, steer_strength: float, sense_reach: float):
     for i in range(config.AGENT_COUNT):
         # Definining values:
         #  agents[i][0] == x position
         #  agents[i][1] == y position
         #  agents[i][2] == angle
-        sense_forward = sense(agents[i].position, agents[i].angles, sense_reach)
-        sense_pitch_neg = sense(agents[i].position, agents[i].angles + tm.vec2(-sense_angle, 0), sense_reach)
-        sense_pitch_pos = sense(agents[i].position, agents[i].angles + tm.vec2(sense_angle, 0), sense_reach)
-        sense_yaw_neg = sense(agents[i].position, agents[i].angles + tm.vec2(0, -sense_angle), sense_reach)
-        sense_yaw_pos = sense(agents[i].position, agents[i].angles + tm.vec2(0, sense_angle), sense_reach)
+        sense_forward = sense(img, agents[i].position, agents[i].angles, sense_reach)
+        sense_pitch_neg = sense(img, agents[i].position, agents[i].angles + tm.vec2(-sense_angle, 0), sense_reach)
+        sense_pitch_pos = sense(img, agents[i].position, agents[i].angles + tm.vec2(sense_angle, 0), sense_reach)
+        sense_yaw_neg = sense(img, agents[i].position, agents[i].angles + tm.vec2(0, -sense_angle), sense_reach)
+        sense_yaw_pos = sense(img, agents[i].position, agents[i].angles + tm.vec2(0, sense_angle), sense_reach)
         
         # Calculate the steering direction based on sensed values
         rand = ti.random()
@@ -145,35 +145,40 @@ def update_pos(sense_angle: float, steer_strength: float, sense_reach: float):
 
 
 @ti.kernel
-def fade(strength: float):
+def fade(img: ti.template(), strength: float):
     for i, j, k in agents_grid:
-        agents_grid[i, j, k] *= strength
+        img[i, j, k] *= strength
 
 
 @ti.kernel
-def blur(
-    src: ti.template(),  # either pixels or temp
-    dst: ti.template(),  # either temp or pixels
+def blur_axis(
+    src: ti.template(),
+    dst: ti.template(),
     dir_x: ti.f32,
-    dir_y: ti.f32
+    dir_y: ti.f32,
+    dir_z: ti.f32
 ):
-    for i, j in dst:
+    for i, j, k in dst:
         acc = 0.0
-        # walk along the given direction
-        for k in ti.static(range(-RADIUS, RADIUS + 1)):
-            x = int(i + k * dir_x)
-            y = int(j + k * dir_y)
-            if 0 <= x < config.SIZE[0] and 0 <= y < config.SIZE[1]:
-                acc += src[x, y] * weights[k + RADIUS]
-        dst[i, j] = acc
+        # walk along the ray in 3D
+        for t in ti.static(range(-RADIUS, RADIUS + 1)):
+            x = int(i + t * dir_x)
+            y = int(j + t * dir_y)
+            z = int(k + t * dir_z)
+            # bounds check against your 3D grid size
+            if (0 <= x < config.GRID_SIZE[0] and
+                0 <= y < config.GRID_SIZE[1] and
+                0 <= z < config.GRID_SIZE[2]):
+                acc += src[x, y, z] * weights[t + RADIUS]
+        dst[i, j, k] = acc
 
 
 @ti.kernel
-def deposit_trail(color: float):
+def deposit_trail(img: ti.template(), color: float):
     for i in range(config.AGENT_COUNT):
         int_pos = tm.ivec3(tm.round(agents[i].position))
         if all(0 <= int_pos) and all(int_pos < config.GRID_SIZE):
-            agents_grid[int(int_pos.x), int(int_pos.y), int(int_pos.z)] += color
+            img[int(int_pos.x), int(int_pos.y), int(int_pos.z)] += color
 
 
 def smoothstep(t):
@@ -281,6 +286,8 @@ def main():
     max_count = 200
     count = 0
     
+    ping, pong = agents_grid, agents_grid_temp
+    
     while not gui.get_event(ti.GUI.ESCAPE, ti.GUI.EXIT):
         # if count <= 0:
         #     # shift "new"→"old"
@@ -333,17 +340,18 @@ def main():
         # # colormap cross‑fade
         # render(old_cmap, new_cmap, t)
 
-        print("depositing")
-        deposit_trail(config.COLOR)
-        print("updating")
-        update_pos(np.radians(45), 2.0, 10.0)
-        print("fading")
-        fade(0.97)
+        deposit_trail(ping, config.COLOR)
+        update_pos(ping, np.radians(45), 2.0, 10.0)
+        fade(ping, 0.97)
+        
+        blur_axis(ping, pong, 1.0, 0.0, 0.0)
+        ping, pong = pong, ping
+        blur_axis(ping, pong, 0.0, 1.0, 0.0)
+        ping, pong = pong, ping
+        blur_axis(ping, pong, 0.0, 0.0, 1.0)
 
-        print("rendering")
-        rendering.render_3d(render_img, agents_grid)
+        rendering.render_3d(render_img, ping)
 
-        print("displaying")
         gui.set_image(render_img)
         gui.show()
 
