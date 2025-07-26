@@ -33,21 +33,7 @@ Agent = ti.types.struct(
     angles=ti.types.vector(2, ti.f32)  # pitch, yaw angles
 )
 
-
-agents_cpu = np.zeros((config.AGENT_COUNT,), dtype=np.dtype([
-    ('position', np.float32, 3),  # x, y, z position
-    ('angles', np.float32, 2)  # angle in radians
-]))
-
-origins = np.random.uniform(0, config.GRID_SIZE[0], (config.AGENT_COUNT, 3)).astype(np.float32)
-agents_cpu[:]["position"] = origins
-u = np.random.uniform(-1.0, 1.0, config.AGENT_COUNT)
-pitch = np.arcsin(u)
-yaw = np.random.uniform(0, 2*np.pi, config.AGENT_COUNT)
-agents_cpu['angles'] = np.stack([pitch, yaw], axis=-1)
-
 agents = Agent.field(shape=(config.AGENT_COUNT,))
-agents.from_numpy(agents_cpu)
 
 sigma = 0.2
 RADIUS = int(np.ceil(sigma * 3))
@@ -58,6 +44,24 @@ weights_cpu /= np.sum(weights_cpu)
 
 weights = ti.field(dtype=ti.f32, shape=len(weights_cpu))
 weights.from_numpy(weights_cpu)
+
+
+@ti.kernel
+def gen_agents():
+    for i in range(config.AGENT_COUNT):
+        # Randomly generate initial positions and angles
+        pos = tm.vec3(
+            ti.random() * config.GRID_SIZE[0],
+            ti.random() * config.GRID_SIZE[1],
+            ti.random() * config.GRID_SIZE[2]
+        )
+        
+        agents[i].position = pos
+        
+        # Randomly generate angles
+        pitch = tm.asin(ti.random() * 2 - 1)
+        yaw = ti.random() * 2 * tm.pi
+        agents[i].angles = tm.vec2(pitch, yaw)
 
 
 @ti.func
@@ -258,6 +262,13 @@ def render(old_cmap: ti.template(), new_cmap: ti.template(), t: float):
 def main():
     gui = ti.GUI("Slime Mold", res=config.RESOLUTION, fast_gui=True)
 
+    gen_agents()
+
+    # Render first frame - since the first iteration takes a while due to JIT compilation
+    rendering.render_3d(render_img, agents_grid)
+    gui.set_image(render_img)
+    gui.show()
+
     # initial params
     steer_old = steer_new = 2.0
     fade_old = fade_new = 0.97
@@ -269,6 +280,7 @@ def main():
 
     max_count = 200
     count = 0
+    
     while not gui.get_event(ti.GUI.ESCAPE, ti.GUI.EXIT):
         # if count <= 0:
         #     # shift "new"→"old"
@@ -321,12 +333,17 @@ def main():
         # # colormap cross‑fade
         # render(old_cmap, new_cmap, t)
 
+        print("depositing")
         deposit_trail(config.COLOR)
+        print("updating")
         update_pos(np.radians(45), 2.0, 10.0)
+        print("fading")
         fade(0.97)
 
+        print("rendering")
         rendering.render_3d(render_img, agents_grid)
 
+        print("displaying")
         gui.set_image(render_img)
         gui.show()
 
