@@ -13,9 +13,14 @@ look_at = tm.vec3(0.0, 0.0, 0.0)
 camera_pos = tm.vec3(0.0, 0.0, 2.0)
 fov = np.radians(45.0)
 
+world_up = tm.vec3(0.0, 1.0, 0.0)
 camera_w = tm.vec3(normalize(camera_pos - look_at))
+
+if abs(camera_w.dot(world_up)) > 0.999:
+    world_up = tm.vec3(0.0, 0.0, 1.0)
+
 # noinspection PyUnreachableCode
-camera_u = tm.vec3(normalize(np.cross(tm.vec3(0.0, 1.0, 0.0), camera_w)))
+camera_u = tm.vec3(normalize(np.cross(world_up, camera_w)))
 # noinspection PyUnreachableCode
 camera_v = tm.vec3(normalize(np.cross(camera_w, camera_u)))
 
@@ -112,7 +117,7 @@ def render_3d(output: ti.template(), volume: ti.template()):
         ray_d = start_ray(i.x, i.y)
         t_min, t_max = unit_cube_intersection(ray_o, ray_d)
         if t_min > t_max:
-            output[i] = tm.vec3(0.0)
+            output[i] = tm.vec3(0.1)
             continue
 
         # march through the cube
