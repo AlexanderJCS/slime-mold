@@ -103,8 +103,36 @@ def update_pos(sense_angle: float, steer_strength: float, sense_reach: float):
         sense_yaw_pos = sense(agents[i].position, agents[i].angles + tm.vec2(0, sense_angle), sense_reach)
         
         # Calculate the steering direction based on sensed values
-        rand = np.random.random()
+        rand = ti.random()
         
+        if (sense_forward > sense_pitch_neg and
+                sense_forward > sense_pitch_pos and
+                sense_forward > sense_yaw_neg and
+                sense_forward > sense_yaw_pos):
+            # no turn
+            agents[i].angles += tm.vec2(0, 0)
+        
+        # 2) worst in front of all five → random jitter in both pitch & yaw
+        elif (sense_forward < sense_pitch_neg and
+              sense_forward < sense_pitch_pos and
+              sense_forward < sense_yaw_neg and
+              sense_forward < sense_yaw_pos):
+            jitter = (rand - 0.5) * 2 * rand * steer_strength
+            agents[i].angles += tm.vec2(jitter, jitter)
+        
+        # 3) otherwise steer by comparing each axis separately
+        else:
+            # pitch axis
+            if sense_pitch_pos > sense_pitch_neg:
+                agents[i].angles.x += rand * steer_strength
+            elif sense_pitch_neg > sense_pitch_pos:
+                agents[i].angles.x -= rand * steer_strength
+            
+            # yaw axis
+            if sense_yaw_pos > sense_yaw_neg:
+                agents[i].angles.y += rand * steer_strength
+            elif sense_yaw_neg > sense_yaw_pos:
+                agents[i].angles.y -= rand * steer_strength
 
 
 @ti.kernel
