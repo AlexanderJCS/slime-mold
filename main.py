@@ -58,24 +58,32 @@ weights.from_numpy(weights_cpu)
 
 
 @ti.func
-def sense(pos: tm.vec3, cos_angle: float, sin_angle: float, sense_reach: float) -> float:
-    # sourcery skip: use-itertools-product
-    sense_dir = tm.vec2(cos_angle, sin_angle)
+def sense(pos: tm.vec3, angle: tm.vec2, sense_reach) -> float:
+    sense_dir = pitch_yaw_to_vec(angle)
     sense_center = pos + sense_dir * sense_reach
-
-    # Define sensing area bounds
-    x_start = int(tm.round(sense_center[0] - config.SENSE_AREA // 2)) % config.SIZE[0]
-    x_end = int(tm.round(sense_center[0] + config.SENSE_AREA // 2)) % config.SIZE[0]
-    y_start = int(tm.round(sense_center[1] - config.SENSE_AREA // 2)) % config.SIZE[1]
-    y_end = int(tm.round(sense_center[1] + config.SENSE_AREA // 2)) % config.SIZE[1]
-
+    
     # Accumulate sensor values directly
     sensor_value = 0.0
-    for x in range(x_start, x_end + 1):
-        for y in range(y_start, y_end + 1):
-            sensor_value += agents_grid[x % config.SIZE[0], y % config.SIZE[1]]
+    for x, y, z in ti.static(ti.ndrange(-1, 1)):
+        xyz_vec = tm.vec3(x, y, z)
+        
+        sense_xyz = tm.round(sense_center + xyz_vec) % config.GRID_SIZE
+        sensor_value += agents_grid[int(sense_xyz.x), int(sense_xyz.y), int(sense_xyz.z)]
 
     return sensor_value
+
+
+@ti.func
+def pitch_yaw_to_vec(angles: tm.vec2) -> tm.vec3:
+    cos_pitch = tm.cos(angles[0])
+    sin_pitch = tm.sin(angles[0])
+    cos_yaw = tm.cos(angles[1])
+    sin_yaw = tm.sin(angles[1])
+    
+    x = cos_pitch * sin_yaw
+    y = sin_pitch
+    z = cos_pitch * cos_yaw
+    return tm.vec3(x, y, z)
 
 
 @ti.kernel
@@ -85,45 +93,24 @@ def update_pos(sense_angle: float, steer_strength: float, sense_reach: float):
         #  agents[i][0] == x position
         #  agents[i][1] == y position
         #  agents[i][2] == angle
-        current_pos = tm.vec2(agents[i][0], agents[i][1])
+        agents[i].position += tm.normalize(pitch_yaw_to_vec(agents[i].angles)) * config.SPEED
+        agents[i].position %= config.GRID_SIZE  # wrap around the grid
         
-        # Precompute trigonometric values once per agent
-        agent_angle = agents[i][2]
-        cos_agent = ti.cos(agent_angle)
-        sin_agent = ti.sin(agent_angle)
-        cos_left = ti.cos(agent_angle - sense_angle)
-        sin_left = ti.sin(agent_angle - sense_angle)
-        cos_right = ti.cos(agent_angle + sense_angle)
-        sin_right = ti.sin(agent_angle + sense_angle)
+        sense_forward = sense(agents[i].position, agents[i].angles, sense_reach)
+        sense_pitch_neg = sense(agents[i].position, agents[i].angles + tm.vec2(-sense_angle, 0), sense_reach)
+        sense_pitch_pos = sense(agents[i].position, agents[i].angles + tm.vec2(sense_angle, 0), sense_reach)
+        sense_yaw_neg = sense(agents[i].position, agents[i].angles + tm.vec2(0, -sense_angle), sense_reach)
+        sense_yaw_pos = sense(agents[i].position, agents[i].angles + tm.vec2(0, sense_angle), sense_reach)
         
-        # Use precomputed values for sensing
-        left_sense = sense(current_pos, cos_left, sin_left, sense_reach)
-        forward_sense = sense(current_pos, cos_agent, sin_agent, sense_reach)
-        right_sense = sense(current_pos, cos_right, sin_right, sense_reach)
-
-        rand = ti.random()
-
-        if forward_sense > left_sense and forward_sense > right_sense:
-            # Move forward
-            agents[i][2] += 0.0
-        elif forward_sense < left_sense and forward_sense < right_sense:
-            agents[i][2] += (rand - 0.5) * steer_strength  # Randomly turn left or right
-        elif right_sense > left_sense:
-            agents[i][2] -= rand * steer_strength
-        elif left_sense > right_sense:
-            agents[i][2] += rand * steer_strength
-            
-        agents[i][0] += cos_agent * config.SPEED
-        agents[i][1] += sin_agent * config.SPEED
-
-        agents[i][0] %= config.SIZE[0]
-        agents[i][1] %= config.SIZE[1]
+        # Calculate the steering direction based on sensed values
+        rand = np.random.random()
+        
 
 
 @ti.kernel
 def fade(strength: float):
-    for i, j in agents_grid:
-        agents_grid[i, j] *= strength
+    for i, j, k in agents_grid:
+        agents_grid[i, j, k] *= strength
 
 
 @ti.kernel
@@ -147,10 +134,9 @@ def blur(
 @ti.kernel
 def deposit_trail(color: float):
     for i in range(config.AGENT_COUNT):
-        x = int(tm.round(agents[i][0]))
-        y = int(tm.round(agents[i][1]))
-        if 0 <= x < config.SIZE[0] and 0 <= y < config.SIZE[1]:
-            agents_grid[x, y] += color
+        int_pos = tm.ivec3(tm.round(agents[i].position))
+        if all(0 <= int_pos) and all(int_pos < config.GRID_SIZE):
+            agents_grid[int(int_pos.x), int(int_pos.y), int(int_pos.z)] += color
 
 
 def smoothstep(t):
@@ -301,6 +287,10 @@ def main():
         #
         # # colormap cross‑fade
         # render(old_cmap, new_cmap, t)
+
+        update_pos(np.radians(90), 2.0, 20.0)
+        deposit_trail(config.COLOR)
+        fade(0.97)
 
         rendering.render_3d(render_img, agents_grid)
 
