@@ -10,8 +10,8 @@ def normalize(v):
 
 
 look_at = tm.vec3(0.0, 0.0, 0.0)
-camera_pos = tm.vec3(0.0, 0.0, 2.0)
-fov = np.radians(45.0)
+camera_pos = tm.vec3(2.0, 2.0, 2.0)
+fov = np.radians(37.5)
 
 world_up = tm.vec3(0.0, 1.0, 0.0)
 camera_w = tm.vec3(normalize(camera_pos - look_at))
@@ -146,4 +146,6 @@ def render_3d(output: ti.template(), volume: ti.template()):
                 col += weight * sample_col
                 alpha_acc += weight
 
-        output[i] = tm.clamp(col, 0.0, 1.0)
+        # Reinhard tonemapping
+        col = col / (1.0 + col)
+        output[i] = col

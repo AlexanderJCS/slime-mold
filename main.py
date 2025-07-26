@@ -39,9 +39,12 @@ agents_cpu = np.zeros((config.AGENT_COUNT,), dtype=np.dtype([
     ('angles', np.float32, 2)  # angle in radians
 ]))
 
-origins = random_points_in_sphere(config.AGENT_COUNT, r=config.GRID_SIZE[0] // 4)
-agents_cpu[:]["position"] = origins + config.GRID_SIZE[0] // 2
-agents_cpu[:]["angles"] = np.random.uniform(0, 2 * np.pi, (config.AGENT_COUNT, 2))
+origins = np.random.uniform(0, config.GRID_SIZE[0], (config.AGENT_COUNT, 3)).astype(np.float32)
+agents_cpu[:]["position"] = origins
+u = np.random.uniform(-1.0, 1.0, config.AGENT_COUNT)
+pitch = np.arcsin(u)
+yaw = np.random.uniform(0, 2*np.pi, config.AGENT_COUNT)
+agents_cpu['angles'] = np.stack([pitch, yaw], axis=-1)
 
 agents = Agent.field(shape=(config.AGENT_COUNT,))
 agents.from_numpy(agents_cpu)
@@ -103,14 +106,14 @@ def update_pos(sense_angle: float, steer_strength: float, sense_reach: float):
         
         # Calculate the steering direction based on sensed values
         rand = ti.random()
-        
+
         if (sense_forward > sense_pitch_neg and
                 sense_forward > sense_pitch_pos and
                 sense_forward > sense_yaw_neg and
                 sense_forward > sense_yaw_pos):
             # no turn
             agents[i].angles += tm.vec2(0, 0)
-        
+
         # 2) worst in front of all five → random jitter in both pitch & yaw
         elif (sense_forward < sense_pitch_neg and
               sense_forward < sense_pitch_pos and
@@ -118,7 +121,7 @@ def update_pos(sense_angle: float, steer_strength: float, sense_reach: float):
               sense_forward < sense_yaw_pos):
             jitter = (rand - 0.5) * 2 * steer_strength
             agents[i].angles += tm.vec2(jitter, jitter)
-        
+
         # 3) otherwise steer by comparing each axis separately
         else:
             # pitch axis
@@ -126,7 +129,7 @@ def update_pos(sense_angle: float, steer_strength: float, sense_reach: float):
                 agents[i].angles.x += rand * steer_strength
             elif sense_pitch_neg > sense_pitch_pos:
                 agents[i].angles.x -= rand * steer_strength
-            
+
             # yaw axis
             if sense_yaw_pos > sense_yaw_neg:
                 agents[i].angles.y += rand * steer_strength
@@ -319,7 +322,7 @@ def main():
         # render(old_cmap, new_cmap, t)
 
         deposit_trail(config.COLOR)
-        update_pos(np.radians(45), 1.0, 20.0)
+        update_pos(np.radians(45), 2.0, 10.0)
         fade(0.97)
 
         rendering.render_3d(render_img, agents_grid)
