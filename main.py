@@ -29,8 +29,10 @@ render_img = ti.field(dtype=tm.vec3, shape=config.RESOLUTION)
 
 
 Agent = ti.types.struct(
-    position=ti.types.vector(3, ti.f32),  # 3D position
-    angles=ti.types.vector(2, ti.f32)  # pitch, yaw angles
+    position=ti.types.vector(3, ti.f32),
+    basis_x=ti.types.vector(3, ti.f32),
+    basis_y=ti.types.vector(3, ti.f32),
+    basis_z=ti.types.vector(3, ti.f32)
 )
 
 agents = Agent.field(shape=(config.AGENT_COUNT,))
@@ -46,30 +48,54 @@ weights = ti.field(dtype=ti.f32, shape=len(weights_cpu))
 weights.from_numpy(weights_cpu)
 
 
+@ti.func
+def orthonormalize(x: tm.vec3, y: tm.vec3, z: tm.vec3):
+    x = x.normalized()
+    y = (y - x*(x.dot(y))).normalized()
+    z = x.cross(y)
+    
+    return x, y, z
+
+
 @ti.kernel
 def gen_agents():
     for i in range(config.AGENT_COUNT):
-        # Randomly generate initial positions and angles
+        # 1) random pos
         pos = tm.vec3(
             ti.random() * config.GRID_SIZE[0],
             ti.random() * config.GRID_SIZE[1],
             ti.random() * config.GRID_SIZE[2]
         )
-        
         agents[i].position = pos
-        
-        # Randomly generate angles
-        pitch = tm.asin(ti.random() * 2 - 1)
-        yaw = ti.random() * 2 * tm.pi
-        agents[i].angles = tm.vec2(pitch, yaw)
+
+        # 2) random unit quaternion
+        u1, u2, u3, u4 = ti.random(), ti.random(), ti.random(), ti.random()
+        q = tm.normalize(tm.vec4(
+            tm.sqrt(-2.0 * ti.log(u1)) * ti.cos(2*tm.pi * u2),
+            tm.sqrt(-2.0 * ti.log(u1)) * ti.sin(2*tm.pi * u2),
+            tm.sqrt(-2.0 * ti.log(u3)) * ti.cos(2*tm.pi * u4),
+            tm.sqrt(-2.0 * ti.log(u3)) * ti.sin(2*tm.pi * u4)
+        ))
+
+        # unpack
+        w = q.x
+        x = q.y
+        y = q.z
+        z = q.w
+
+        # 3) convert to orthonormal basis
+        mat = tm.mat3(  # Taichi mat3 from quaternion
+            1 - 2*(y*y + z*z),  2*(x*y - w*z),    2*(x*z + w*y),
+            2*(x*y + w*z),      1 - 2*(x*x + z*z),2*(y*z - w*x),
+            2*(x*z - w*y),      2*(y*z + w*x),    1 - 2*(x*x + y*y)
+        )
+        agents[i].basis_x = tm.vec3(mat[0, 0], mat[0, 1], mat[0, 2])
+        agents[i].basis_y = tm.vec3(mat[1, 0], mat[1, 1], mat[1, 2])
+        agents[i].basis_z = tm.vec3(mat[2, 0], mat[2, 1], mat[2, 2])
 
 
 @ti.func
-def sense(img: ti.template(), pos: tm.vec3, angle: tm.vec2, sense_reach) -> float:
-    sense_dir = pitch_yaw_to_vec(angle)
-    sense_center = pos + sense_dir * sense_reach
-    
-    # Accumulate sensor values directly
+def sense(img: ti.template(), sense_center) -> float:
     sensor_value = 0.0
     for dx, dy, dz in ti.static(
             [(x, y, z)
@@ -93,6 +119,27 @@ def pitch_yaw_to_vec(angles: tm.vec2) -> tm.vec3:
     y = sin_pitch
     z = cos_pitch * cos_yaw
     return tm.vec3(x, y, z)
+
+
+@ti.func
+def rotate_3d(angle: float, axis: tm.vec3) -> tm.mat3:
+    """Returns a rotation matrix for a given angle around a specified axis."""
+    a = tm.normalize(axis)
+    s = tm.sin(angle)
+    c = tm.cos(angle)
+    r = 1.0 - c
+    
+    return tm.mat3(
+        a.x * a.x * r + c,
+        a.y * a.x * r + a.z * s,
+        a.z * a.x * r - a.y * s,
+        a.x * a.y * r - a.z * s,
+        a.y * a.y * r + c,
+        a.z * a.y * r + a.x * s,
+        a.x * a.z * r + a.y * s,
+        a.y * a.z * r - a.x * s,
+        a.z * a.z * r + c
+    )
 
 
 @ti.kernel
