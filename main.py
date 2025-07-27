@@ -109,19 +109,6 @@ def sense(img: ti.template(), sense_center) -> float:
 
 
 @ti.func
-def pitch_yaw_to_vec(angles: tm.vec2) -> tm.vec3:
-    cos_pitch = tm.cos(angles[0])
-    sin_pitch = tm.sin(angles[0])
-    cos_yaw = tm.cos(angles[1])
-    sin_yaw = tm.sin(angles[1])
-    
-    x = cos_pitch * sin_yaw
-    y = sin_pitch
-    z = cos_pitch * cos_yaw
-    return tm.vec3(x, y, z)
-
-
-@ti.func
 def rotate_3d(angle: float, axis: tm.vec3) -> tm.mat3:
     """Returns a rotation matrix for a given angle around a specified axis."""
     a = tm.normalize(axis)
@@ -142,6 +129,12 @@ def rotate_3d(angle: float, axis: tm.vec3) -> tm.mat3:
     )
 
 
+@ti.func
+def isclose(a, b, tol=1e-5):
+    """Check if two values are close within a tolerance."""
+    return abs(a - b) < tol
+
+
 @ti.kernel
 def update_pos(img: ti.template(), sense_angle: float, steer_strength: float, sense_reach: float):
     for i in range(config.AGENT_COUNT):
@@ -149,46 +142,73 @@ def update_pos(img: ti.template(), sense_angle: float, steer_strength: float, se
         #  agents[i][0] == x position
         #  agents[i][1] == y position
         #  agents[i][2] == angle
-        sense_forward = sense(img, agents[i].position, agents[i].angles, sense_reach)
-        sense_pitch_neg = sense(img, agents[i].position, agents[i].angles + tm.vec2(-sense_angle, 0), sense_reach)
-        sense_pitch_pos = sense(img, agents[i].position, agents[i].angles + tm.vec2(sense_angle, 0), sense_reach)
-        sense_yaw_neg = sense(img, agents[i].position, agents[i].angles + tm.vec2(0, -sense_angle), sense_reach)
-        sense_yaw_pos = sense(img, agents[i].position, agents[i].angles + tm.vec2(0, sense_angle), sense_reach)
+        forwards = agents[i].basis_z
         
-        # Calculate the steering direction based on sensed values
-        rand = ti.random()
-
-        if (sense_forward > sense_pitch_neg and
-                sense_forward > sense_pitch_pos and
-                sense_forward > sense_yaw_neg and
-                sense_forward > sense_yaw_pos):
-            # no turn
-            agents[i].angles += tm.vec2(0, 0)
-
-        # 2) worst in front of all five → random jitter in both pitch & yaw
-        elif (sense_forward < sense_pitch_neg and
-              sense_forward < sense_pitch_pos and
-              sense_forward < sense_yaw_neg and
-              sense_forward < sense_yaw_pos):
-            jitter = (rand - 0.5) * 2 * steer_strength
-            agents[i].angles += tm.vec2(jitter, jitter)
-
-        # 3) otherwise steer by comparing each axis separately
+        sense_positions = [tm.vec3(0.0, 0.0, 0.0) for _ in range(4)]
+        move_positions = [tm.vec3(0.0, 0.0, 0.0) for _ in range(4)]
+        sense_positions[0] = agents[i].position + forwards * sense_reach
+        move_positions[0] = agents[i].position + forwards * config.SPEED
+        
+        tipped_up_sense = rotate_3d(sense_angle, agents[i].basis_x) @ forwards * sense_reach
+        tipped_up_move = rotate_3d(sense_angle, agents[i].basis_x) @ forwards * config.SPEED
+        for j in ti.static(range(1, 4)):
+            sense_positions[j] = agents[i].position + rotate_3d(2.0 * tm.pi * j / 3.0, agents[i].basis_z) @ tipped_up_sense
+            move_positions[j] = agents[i].position + rotate_3d(2.0 * tm.pi * j / 3.0, agents[i].basis_z) @ tipped_up_move
+        
+        sense_samples = [0.0 for _ in range(4)]
+        for j in ti.static(range(4)):
+            sense_samples[j] = sense(img, sense_positions[j])
+        
+        max_sample = ti.max(
+            sense_samples[0],
+            sense_samples[1],
+            sense_samples[2],
+            sense_samples[3],
+        )
+        
+        selected = 0
+        if (
+            isclose(max_sample, sense_samples[0]) and
+            isclose(max_sample, sense_samples[1]) and
+            isclose(max_sample, sense_samples[2]) and
+            isclose(max_sample, sense_samples[3])
+        ):
+            selected = int(ti.random() * 4)
+        elif (
+            isclose(max_sample, sense_samples[1]) and
+            isclose(max_sample, sense_samples[2]) and
+            isclose(max_sample, sense_samples[3])
+        ):
+            selected = int(ti.random() * 3) + 1
+        elif isclose(max_sample, sense_samples[0]):
+            selected = 0
+        elif isclose(max_sample, sense_samples[1]):
+            selected = 1
+        elif isclose(max_sample, sense_samples[2]):
+            selected = 2
+        elif isclose(max_sample, sense_samples[3]):
+            selected = 3
+        
+        selected = ti.max(0, ti.min(selected, 3))  # clamp to [0, 3]
+        
+        if selected == 0:
+            pass  # Nothing to do here, just move forward
         else:
-            # pitch axis
-            if sense_pitch_pos > sense_pitch_neg:
-                agents[i].angles.x += rand * steer_strength
-            elif sense_pitch_neg > sense_pitch_pos:
-                agents[i].angles.x -= rand * steer_strength
-
-            # yaw axis
-            if sense_yaw_pos > sense_yaw_neg:
-                agents[i].angles.y += rand * steer_strength
-            elif sense_yaw_neg > sense_yaw_pos:
-                agents[i].angles.y -= rand * steer_strength
+            transform = rotate_3d(2.0 * tm.pi * selected / 3.0, agents[i].basis_z) @ rotate_3d(sense_angle, agents[i].basis_x)
+            agents[i].basis_x, agents[i].basis_y, agents[i].basis_z = orthonormalize(
+                transform @ agents[i].basis_x,
+                transform @ agents[i].basis_y,
+                transform @ agents[i].basis_z
+            )
         
-        agents[i].position += tm.normalize(pitch_yaw_to_vec(agents[i].angles)) * config.SPEED
-        agents[i].position %= config.GRID_SIZE  # wrap around the grid
+        if int(selected) == 0:
+            agents[i].position = move_positions[0] % config.GRID_SIZE
+        elif int(selected) == 1:
+            agents[i].position = move_positions[1] % config.GRID_SIZE
+        elif int(selected) == 2:
+            agents[i].position = move_positions[2] % config.GRID_SIZE
+        elif int(selected) == 3:
+            agents[i].position = move_positions[3] % config.GRID_SIZE
 
 
 @ti.kernel
