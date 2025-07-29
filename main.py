@@ -37,7 +37,7 @@ Agent = ti.types.struct(
 
 agents = Agent.field(shape=(config.AGENT_COUNT,))
 
-sigma = 0.2
+sigma = 0.1
 RADIUS = int(np.ceil(sigma * 3))
 
 # precompute 1D Gaussian weights
@@ -162,33 +162,31 @@ def update_pos(img: ti.template(), sense_angle: float, steer_strength: float, se
             sense_samples[3],
         )
         
-        selected = 0
+        selected = 0  # default to no steering
+        steer_amount = 0.0
         if (
-            isclose(max_sample, sense_samples[0]) and
-            isclose(max_sample, sense_samples[1]) and
-            isclose(max_sample, sense_samples[2]) and
-            isclose(max_sample, sense_samples[3])
-        ):
-            selected = int(ti.random() * 4)
-        elif (
-            isclose(max_sample, sense_samples[1]) and
-            isclose(max_sample, sense_samples[2]) and
-            isclose(max_sample, sense_samples[3])
+            sense_samples[1] < sense_samples[0] and
+            sense_samples[2] < sense_samples[0] and
+            sense_samples[3] < sense_samples[0]
         ):
             selected = int(ti.random() * 3) + 1
-        if isclose(max_sample, sense_samples[0]):
+            steer_amount = (ti.random() - 0.5) * steer_strength
+        elif isclose(max_sample, sense_samples[0]):
             selected = 0
+            steer_amount = ti.random() * steer_strength
         elif isclose(max_sample, sense_samples[1]):
             selected = 1
+            steer_amount = ti.random() * steer_strength
         elif isclose(max_sample, sense_samples[2]):
             selected = 2
+            steer_amount = ti.random() * steer_strength
         elif isclose(max_sample, sense_samples[3]):
             selected = 3
+            steer_amount = ti.random() * steer_strength
         
         selected = ti.max(0, ti.min(selected, 3))  # clamp to [0, 3]
         
         if selected != 0:
-            steer_amount = ti.random() * steer_strength
             steer_tile = sense_angle * steer_amount
             steer_yaw = (2.0 * tm.pi * selected / 3.0) * steer_amount
             
@@ -386,8 +384,8 @@ def main():
         # render(old_cmap, new_cmap, t)
 
         deposit_trail(ping, config.COLOR)
-        update_pos(ping, np.radians(70), 3, 15.0)
-        fade(ping, 0.97)
+        update_pos(ping, np.radians(60), 1, 15.0)
+        fade(ping, 0.93)
         
         blur_axis(ping, pong, 1.0, 0.0, 0.0)
         ping, pong = pong, ping
