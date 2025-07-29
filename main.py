@@ -99,9 +99,9 @@ def sense(img: ti.template(), sense_center) -> float:
     sensor_value = 0.0
     for dx, dy, dz in ti.static(
             [(x, y, z)
-             for x in (-1, 0, 1)
-             for y in (-1, 0, 1)
-             for z in (-1, 0, 1)]):
+             for x in range(-config.SENSE_AREA // 2, config.SENSE_AREA // 2 + 1)
+             for y in range(-config.SENSE_AREA // 2, config.SENSE_AREA // 2 + 1)
+             for z in range(-config.SENSE_AREA // 2, config.SENSE_AREA // 2 + 1)]):
         sense_pos = tm.round(sense_center + tm.vec3(dx, dy, dz)) % config.GRID_SIZE
         sensor_value += img[int(sense_pos.x), int(sense_pos.y), int(sense_pos.z)]
 
@@ -145,15 +145,11 @@ def update_pos(img: ti.template(), sense_angle: float, steer_strength: float, se
         forwards = agents[i].basis_z
         
         sense_positions = [tm.vec3(0.0, 0.0, 0.0) for _ in range(4)]
-        move_positions = [tm.vec3(0.0, 0.0, 0.0) for _ in range(4)]
         sense_positions[0] = agents[i].position + forwards * sense_reach
-        move_positions[0] = agents[i].position + forwards * config.SPEED
         
         tipped_up_sense = rotate_3d(sense_angle, agents[i].basis_x) @ forwards * sense_reach
-        tipped_up_move = rotate_3d(sense_angle, agents[i].basis_x) @ forwards * config.SPEED
         for j in ti.static(range(1, 4)):
             sense_positions[j] = agents[i].position + rotate_3d(2.0 * tm.pi * j / 3.0, agents[i].basis_z) @ tipped_up_sense
-            move_positions[j] = agents[i].position + rotate_3d(2.0 * tm.pi * j / 3.0, agents[i].basis_z) @ tipped_up_move
         
         sense_samples = [0.0 for _ in range(4)]
         for j in ti.static(range(4)):
@@ -180,7 +176,7 @@ def update_pos(img: ti.template(), sense_angle: float, steer_strength: float, se
             isclose(max_sample, sense_samples[3])
         ):
             selected = int(ti.random() * 3) + 1
-        elif isclose(max_sample, sense_samples[0]):
+        if isclose(max_sample, sense_samples[0]):
             selected = 0
         elif isclose(max_sample, sense_samples[1]):
             selected = 1
@@ -191,24 +187,20 @@ def update_pos(img: ti.template(), sense_angle: float, steer_strength: float, se
         
         selected = ti.max(0, ti.min(selected, 3))  # clamp to [0, 3]
         
-        if selected == 0:
-            pass  # Nothing to do here, just move forward
-        else:
-            transform = rotate_3d(2.0 * tm.pi * selected / 3.0, agents[i].basis_z) @ rotate_3d(sense_angle, agents[i].basis_x)
+        if selected != 0:
+            steer_amount = ti.random() * steer_strength
+            steer_tile = sense_angle * steer_amount
+            steer_yaw = (2.0 * tm.pi * selected / 3.0) * steer_amount
+            
+            transform = rotate_3d(steer_yaw, agents[i].basis_z) @ rotate_3d(steer_tile, agents[i].basis_x)
+            
             agents[i].basis_x, agents[i].basis_y, agents[i].basis_z = orthonormalize(
                 transform @ agents[i].basis_x,
                 transform @ agents[i].basis_y,
                 transform @ agents[i].basis_z
             )
         
-        if int(selected) == 0:
-            agents[i].position = move_positions[0] % config.GRID_SIZE
-        elif int(selected) == 1:
-            agents[i].position = move_positions[1] % config.GRID_SIZE
-        elif int(selected) == 2:
-            agents[i].position = move_positions[2] % config.GRID_SIZE
-        elif int(selected) == 3:
-            agents[i].position = move_positions[3] % config.GRID_SIZE
+        agents[i].position = (agents[i].position + agents[i].basis_z * config.SPEED) % config.GRID_SIZE
 
 
 @ti.kernel
@@ -315,20 +307,6 @@ def interp_cmap(cmap: ti.template(), value: float) -> tm.vec3:
     c0 = cmap[idx]
     c1 = cmap[ti.min(idx + 1, config.CMAP_COLORS - 1)]
     return tm.mix(c0, c1, frac)
-
-
-@ti.kernel
-def render(old_cmap: ti.template(), new_cmap: ti.template(), t: float):
-    # cmap is assumed to be a ti.field(dtype=tm.vec3, shape=N)
-    
-    for i, j in agents_grid:
-        value = agents_grid[i, j]
-        tonemapped = value / (value + 1)  # Reinhard tonemapping
-        old_color = interp_cmap(old_cmap, tonemapped)
-        new_color = interp_cmap(new_cmap, tonemapped)
-        gui_color = tm.mix(old_color, new_color, t)
-        
-        render_img[i, j] = gui_color
         
 
 def main():
@@ -408,7 +386,7 @@ def main():
         # render(old_cmap, new_cmap, t)
 
         deposit_trail(ping, config.COLOR)
-        update_pos(ping, np.radians(45), 2.0, 10.0)
+        update_pos(ping, np.radians(70), 3, 15.0)
         fade(ping, 0.97)
         
         blur_axis(ping, pong, 1.0, 0.0, 0.0)
