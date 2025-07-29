@@ -7,20 +7,7 @@ import numpy as np
 import taichi as ti
 import taichi.math as tm
 
-ti.init(arch=ti.gpu)
-
-
-def random_points_in_sphere(n, r=1.0):
-    # Random angles
-    theta = np.random.uniform(0, 2 * np.pi, n)  # Azimuthal angle
-    phi = np.arccos(1 - 2 * np.random.uniform(0, 1, n))  # Polar angle
-    # Radii with √³ to ensure uniform volume density
-    radius = np.cbrt(np.random.uniform(0, 1, n)) * r
-
-    x = radius * np.sin(phi) * np.cos(theta)
-    y = radius * np.sin(phi) * np.sin(theta)
-    z = radius * np.cos(phi)
-    return np.column_stack((x, y, z))
+ti.init(arch=ti.cpu, kernel_profiler=True)
 
 
 agents_grid = ti.field(dtype=ti.f32, shape=config.GRID_SIZE)
@@ -96,16 +83,9 @@ def gen_agents():
 
 @ti.func
 def sense(img: ti.template(), sense_center) -> float:
-    sensor_value = 0.0
-    for dx, dy, dz in ti.static(
-            [(x, y, z)
-             for x in range(-config.SENSE_AREA // 2, config.SENSE_AREA // 2 + 1)
-             for y in range(-config.SENSE_AREA // 2, config.SENSE_AREA // 2 + 1)
-             for z in range(-config.SENSE_AREA // 2, config.SENSE_AREA // 2 + 1)]):
-        sense_pos = tm.round(sense_center + tm.vec3(dx, dy, dz)) % config.GRID_SIZE
-        sensor_value += img[int(sense_pos.x), int(sense_pos.y), int(sense_pos.z)]
-
-    return sensor_value
+    # When SENSE_AREA == 1, we only sample the center point
+    sense_pos = tm.round(sense_center) % config.GRID_SIZE
+    return img[int(sense_pos.x), int(sense_pos.y), int(sense_pos.z)]
 
 
 @ti.func
@@ -138,10 +118,6 @@ def isclose(a, b, tol=1e-5):
 @ti.kernel
 def update_pos(img: ti.template(), sense_angle: float, steer_strength: float, sense_reach: float):
     for i in range(config.AGENT_COUNT):
-        # Definining values:
-        #  agents[i][0] == x position
-        #  agents[i][1] == y position
-        #  agents[i][2] == angle
         forwards = agents[i].basis_z
         
         sense_positions = [tm.vec3(0.0, 0.0, 0.0) for _ in range(4)]
@@ -317,72 +293,11 @@ def main():
     gui.set_image(render_img)
     gui.show()
 
-    # initial params
-    steer_old = steer_new = 2.0
-    fade_old = fade_new = 0.97
-    angle_old = angle_new = np.radians(90)
-    reach_old = reach_new = 20.0
-
-    old_cmap = gen_cmap()
-    new_cmap = gen_cmap()
-
-    max_count = 200
     count = 0
     
     ping, pong = agents_grid, agents_grid_temp
     
     while not gui.get_event(ti.GUI.ESCAPE, ti.GUI.EXIT):
-        # if count <= 0:
-        #     # shift "new"→"old"
-        #     steer_old, steer_new = (
-        #         steer_new,  np.random.uniform(1.0, 3.0)
-        #         if np.random.random() > 0.5
-        #         else np.random.uniform(0.2, 0.6)
-        #     )
-        #
-        #     fade_old, fade_new = fade_new,   np.random.uniform(0.97, 0.99)
-        #
-        #     loop_over = np.random.random() > 0.8
-        #     high_reach = np.random.random() > 0.4
-        #
-        #     angle_old, angle_new = angle_new, np.radians(np.clip(
-        #         np.random.uniform(160, 179) if loop_over
-        #         else np.random.normal(70, 30),
-        #         5, 179
-        #     ))
-        #
-        #     reach_old, reach_new = reach_new, (
-        #         np.random.uniform(20, 40) if high_reach
-        #         else np.random.uniform(8, 15)
-        #     )
-        #
-        #     old_cmap = new_cmap
-        #     new_cmap = gen_cmap()
-        #
-        #     print(f"New params → steer: {steer_new:.2f}, fade: {fade_new:.3f}, "
-        #           f"angle: {np.degrees(angle_new):.1f}°, reach: {reach_new:.1f}")
-        #
-        #     count = max_count
-        #
-        # t_raw = (max_count - count) / max_count
-        # t = float(np.clip(t_raw, 0.0, 1.0))
-        #
-        # # interpolate each parameter
-        # steer_strength = (1 - t) * steer_old + t * steer_new
-        # fade_strength = (1 - t) * fade_old + t * fade_new
-        # sense_angle = (1 - t) * angle_old + t * angle_new
-        # sense_reach = (1 - t) * reach_old + t * reach_new
-        #
-        # # simulation steps use the interpolated values
-        # update_pos(sense_angle, steer_strength, sense_reach)
-        # fade(fade_strength)
-        # deposit_trail(config.COLOR)
-        # blur(agents_grid, temp, 1.0, 0.0)
-        # blur(temp, agents_grid, 0.0, 1.0)
-        #
-        # # colormap cross‑fade
-        # render(old_cmap, new_cmap, t)
-
         deposit_trail(ping, config.COLOR)
         update_pos(ping, np.radians(60), 1, 15.0)
         fade(ping, 0.93)
@@ -399,6 +314,11 @@ def main():
         gui.show()
 
         count -= 1
+
+        if count == -100:
+            break
+
+    ti.profiler.print_kernel_profiler_info()
 
 
 if __name__ == "__main__":
