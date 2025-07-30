@@ -7,7 +7,7 @@ import numpy as np
 import taichi as ti
 import taichi.math as tm
 
-ti.init(arch=ti.cpu, kernel_profiler=True)
+ti.init(arch=ti.gpu)
 
 
 agents_grid = ti.field(dtype=ti.f32, shape=config.GRID_SIZE)
@@ -281,7 +281,13 @@ def interp_cmap(cmap: ti.template(), value: float) -> tm.vec3:
     c0 = cmap[idx]
     c1 = cmap[ti.min(idx + 1, config.CMAP_COLORS - 1)]
     return tm.mix(c0, c1, frac)
-        
+
+
+@ti.kernel
+def initialize_3d():
+    for i, j, k in agents_grid:
+        agents_grid[i, j, k] = 0.5
+
 
 def main():
     gui = ti.GUI("Slime Mold", res=config.RESOLUTION, fast_gui=True)
@@ -296,29 +302,25 @@ def main():
     count = 0
     
     ping, pong = agents_grid, agents_grid_temp
+    initialize_3d()
     
     while not gui.get_event(ti.GUI.ESCAPE, ti.GUI.EXIT):
         deposit_trail(ping, config.COLOR)
         update_pos(ping, np.radians(60), 1, 15.0)
         fade(ping, 0.93)
-        
+
         blur_axis(ping, pong, 1.0, 0.0, 0.0)
         ping, pong = pong, ping
         blur_axis(ping, pong, 0.0, 1.0, 0.0)
         ping, pong = pong, ping
         blur_axis(ping, pong, 0.0, 0.0, 1.0)
 
-        rendering.render_3d(render_img, ping)
+        rendering.render_3d(render_img, agents_grid)
 
         gui.set_image(render_img)
         gui.show()
 
         count -= 1
-
-        if count == -100:
-            break
-
-    ti.profiler.print_kernel_profiler_info()
 
 
 if __name__ == "__main__":

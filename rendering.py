@@ -136,15 +136,17 @@ def render_3d(output: ti.template(), volume: ti.template()):
 
             uvw = ray_o + t * ray_d + 0.5  # location of the sample in [0,1]^3
 
-            if 0.0 <= uvw.x < 1 and 0.0 <= uvw.y < 1 and 0.0 <= uvw.z < 1:
-                density = sample_volume(volume, uvw)
-                # Beer–Lambert for opacity
-                sigma = 1.0  # absorption coefficient
-                sample_a = 1.0 - tm.exp(-sigma * density * dt)
-                sample_col = tm.vec3(pow(density, 0.6))  # gamma‐corrected white ramp
-                weight = (1 - alpha_acc) * sample_a
-                col += weight * sample_col
-                alpha_acc += weight
+            if any(uvw < 0.0) or any(uvw > 1.0):
+                continue
+                
+            density = tm.max(sample_volume(volume, uvw), 0.0)
+            # Beer–Lambert for opacity
+            sigma = 1.0  # absorption coefficient
+            sample_a = 1.0 - tm.exp(-sigma * density * dt)
+            sample_col = tm.vec3(pow(density, 0.6))  # gamma‐corrected white ramp
+            weight = (1 - alpha_acc) * sample_a
+            col += weight * sample_col
+            alpha_acc += weight
 
         # Reinhard tonemapping
         col = col / (1.0 + col)
