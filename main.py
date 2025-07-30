@@ -193,7 +193,7 @@ def blur_axis(
 ):
     for i, j, k in dst:
         acc = 0.0
-        # walk along the ray in 3D
+        
         for t in ti.static(range(-RADIUS, RADIUS + 1)):
             x = int(i + t * dir_x)
             y = int(j + t * dir_y)
