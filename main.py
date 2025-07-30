@@ -307,7 +307,7 @@ def main():
     while not gui.get_event(ti.GUI.ESCAPE, ti.GUI.EXIT):
         deposit_trail(ping, config.COLOR)
         update_pos(ping, np.radians(60), 1, 15.0)
-        fade(ping, 0.93)
+        fade(ping, config.FADE_STRENGTH)
 
         blur_axis(ping, pong, 1.0, 0.0, 0.0)
         ping, pong = pong, ping

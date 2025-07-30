@@ -5,3 +5,4 @@ AGENT_COUNT = 5000000
 COLOR = 600000 / AGENT_COUNT
 CMAP_COLORS = 6  # number of colors in the colormap
 SPEED = 1
+FADE_STRENGTH = 0.93
