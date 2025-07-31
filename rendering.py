@@ -122,7 +122,7 @@ def render_3d(output: ti.template(), volume: ti.template(), gradient_image: ti.t
 
         # march through the cube
         dist = t_max - t_min
-        num_samples = ti.static(128)
+        num_samples = ti.static(256)
         dt = dist / num_samples
 
         col = tm.vec3(0.0)
