@@ -198,23 +198,18 @@ def blur_axis(
         acc = 0.0
         
         for t in ti.static(range(-RADIUS, RADIUS + 1)):
-            x = int(i + t * dir_x)
-            y = int(j + t * dir_y)
-            z = int(k + t * dir_z)
-            # bounds check against your 3D grid size
-            if (0 <= x < config.GRID_SIZE[0] and
-                0 <= y < config.GRID_SIZE[1] and
-                0 <= z < config.GRID_SIZE[2]):
-                acc += src[x, y, z] * weights[t + RADIUS]
+            x = int(i + t * dir_x) % config.GRID_SIZE[0]
+            y = int(j + t * dir_y) % config.GRID_SIZE[1]
+            z = int(k + t * dir_z) % config.GRID_SIZE[2]
+            acc += src[x, y, z] * weights[t + RADIUS]
         dst[i, j, k] = acc
 
 
 @ti.kernel
 def deposit_trail(img: ti.template(), color: float):
     for i in range(config.AGENT_COUNT):
-        int_pos = tm.ivec3(tm.round(agents[i].position))
-        if all(0 <= int_pos) and all(int_pos < config.GRID_SIZE):
-            img[int(int_pos.x), int(int_pos.y), int(int_pos.z)] += color
+        int_pos = tm.ivec3(tm.round(agents[i].position)) % config.GRID_SIZE
+        img[int(int_pos.x), int(int_pos.y), int(int_pos.z)] += color
 
 
 @ti.kernel

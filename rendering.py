@@ -63,27 +63,30 @@ def _intersect_slab(
     return tm.vec2(t_min, t_max)
 
 
-@ti.func
-def unit_cube_intersection(
-        ray_origin: tm.vec3,
-        ray_dir: tm.vec3
-) -> tm.vec2:
-    """Calculate (t_min, t_max) entry/exit distances for unit cube [-0.5, 0.5]^3"""
-    t_min = 0.001
-    t_max = 10000.0
+cube_size = ti.Vector.field(3, dtype=ti.f32, shape=(), needs_grad=False)
+half_size = ti.Vector.field(3, dtype=ti.f32, shape=(), needs_grad=False)
 
+cube_size[None] = tm.vec3(1, 1, 1)
+half_size[None] = cube_size[None] * 0.5
+
+
+@ti.func
+def cube_intersection(orig, dir):
+    t_min = 0.001
+    t_max = 1e5
+    H = half_size[None]
+    
     # X slab
-    slab = _intersect_slab(ray_origin.x, ray_dir.x, -0.5, 0.5, t_min, t_max)
+    slab = _intersect_slab(orig.x, dir.x, -H.x, H.x, t_min, t_max)
     t_min, t_max = slab.x, slab.y
     
     # Y slab
-    slab = _intersect_slab(ray_origin.y, ray_dir.y, -0.5, 0.5, t_min, t_max)
+    slab = _intersect_slab(orig.y, dir.y, -H.y, H.y, t_min, t_max)
     t_min, t_max = slab.x, slab.y
     
     # Z slab
-    slab = _intersect_slab(ray_origin.z, ray_dir.z, -0.5, 0.5, t_min, t_max)
+    slab = _intersect_slab(orig.z, dir.z, -H.z, H.z, t_min, t_max)
     t_min, t_max = slab.x, slab.y
-
     return tm.vec2(t_min, t_max)
 
 
@@ -119,7 +122,7 @@ def render_3d(
         # initialize ray
         ray_o = camera_pos[None]
         ray_d = start_ray(i.x, i.y)
-        t_min, t_max = unit_cube_intersection(ray_o, ray_d)
+        t_min, t_max = cube_intersection(ray_o, ray_d)
         if t_min > t_max:
             output[i] = tm.vec3(0)
             continue
@@ -138,7 +141,9 @@ def render_3d(
 
             t = t_min + (s + 0.5) * dt  # midpoint sampling
 
-            uvw = ray_o + t * ray_d + 0.5  # location of the sample in [0,1]^3
+            p = ray_o + t * ray_d
+            local = p + half_size[None]
+            uvw = tm.fract(local)
 
             if any(uvw < 0.0) or any(uvw > 1.0):
                 continue
@@ -152,8 +157,8 @@ def render_3d(
             sample_col = tm.vec3(pow(density, 0.6))  # gamma‐corrected white ramp
             weight = (1 - alpha_acc) * sample_a
             
-            old_color = cmap.interp_cmap(old_cmap, gradient.x * 0.5 + 0.5)
-            new_color = cmap.interp_cmap(new_cmap, gradient.x * 0.5 + 0.5)
+            old_color = cmap.interp_cmap(old_cmap, tm.clamp(gradient.x * 0.5 + 0.5, 0.0001, 0.9999))
+            new_color = cmap.interp_cmap(new_cmap, tm.clamp(gradient.y * 0.5 + 0.5, 0.0001, 0.9999))
             
             color = tm.mix(old_color, new_color, time)
             
