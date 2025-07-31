@@ -110,7 +110,7 @@ def sample_volume(volume, pos):
 
 
 @ti.kernel
-def render_3d(output: ti.template(), volume: ti.template()):
+def render_3d(output: ti.template(), volume: ti.template(), gradient_image: ti.template()):
     for i in ti.grouped(output):
         # initialize ray
         ray_o = camera_pos
@@ -140,12 +140,15 @@ def render_3d(output: ti.template(), volume: ti.template()):
                 continue
                 
             density = tm.max(sample_volume(volume, uvw), 0.0)
+            gradient = tm.normalize(sample_volume(gradient_image, uvw))
+            
             # Beer–Lambert for opacity
             sigma = 1.0  # absorption coefficient
             sample_a = 1.0 - tm.exp(-sigma * density * dt)
             sample_col = tm.vec3(pow(density, 0.6))  # gamma‐corrected white ramp
             weight = (1 - alpha_acc) * sample_a
-            col += weight * sample_col
+            col += weight * sample_col * (gradient * 0.7 + 0.5)
+            
             alpha_acc += weight
 
         # Reinhard tonemapping

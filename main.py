@@ -11,6 +11,7 @@ ti.init(arch=ti.gpu)
 
 
 agents_grid = ti.field(dtype=ti.f32, shape=config.GRID_SIZE)
+gradient = ti.Vector.field(3, dtype=ti.f32, shape=config.GRID_SIZE)
 agents_grid_temp = ti.field(dtype=ti.f32, shape=config.GRID_SIZE)
 render_img = ti.field(dtype=tm.vec3, shape=config.RESOLUTION)
 
@@ -24,7 +25,7 @@ Agent = ti.types.struct(
 
 agents = Agent.field(shape=(config.AGENT_COUNT,))
 
-sigma = 0.1
+sigma = 0.6
 RADIUS = int(np.ceil(sigma * 3))
 
 # precompute 1D Gaussian weights
@@ -214,6 +215,20 @@ def deposit_trail(img: ti.template(), color: float):
             img[int(int_pos.x), int(int_pos.y), int(int_pos.z)] += color
 
 
+@ti.kernel
+def compute_gradient(img: ti.template(), gradient: ti.template()):
+    for i, j, k in img:
+        if 0 < i < config.GRID_SIZE[0] - 1 and \
+           0 < j < config.GRID_SIZE[1] - 1 and \
+           0 < k < config.GRID_SIZE[2] - 1:
+
+            dx = 0.5 * (img[i + 1, j, k] - img[i - 1, j, k])
+            dy = 0.5 * (img[i, j + 1, k] - img[i, j - 1, k])
+            dz = 0.5 * (img[i, j, k + 1] - img[i, j, k - 1])
+
+            gradient[i, j, k] = ti.Vector([dx, dy, dz])
+
+
 def smoothstep(t):
     return t**2 * (3.0 - 2.0 * t)
     
@@ -295,9 +310,9 @@ def main():
     gen_agents()
 
     # Render first frame - since the first iteration takes a while due to JIT compilation
-    rendering.render_3d(render_img, agents_grid)
-    gui.set_image(render_img)
-    gui.show()
+    # rendering.render_3d(render_img, agents_grid, gradient)
+    # gui.set_image(render_img)
+    # gui.show()
 
     count = 0
     
@@ -315,7 +330,10 @@ def main():
         ping, pong = pong, ping
         blur_axis(ping, pong, 0.0, 0.0, 1.0)
 
-        rendering.render_3d(render_img, agents_grid)
+        # make gradient
+        compute_gradient(ping, gradient)
+
+        rendering.render_3d(render_img, agents_grid, gradient)
 
         gui.set_image(render_img)
         gui.show()
