@@ -3,6 +3,7 @@ import taichi as ti
 import taichi.math as tm
 
 import config
+import cmap
 
 
 def normalize(v):
@@ -110,7 +111,10 @@ def sample_volume(volume, pos):
 
 
 @ti.kernel
-def render_3d(output: ti.template(), volume: ti.template(), gradient_image: ti.template()):
+def render_3d(
+        output: ti.template(), volume: ti.template(), gradient_image: ti.template(),
+        old_cmap: ti.template(), new_cmap: ti.template(), time: float
+):
     for i in ti.grouped(output):
         # initialize ray
         ray_o = camera_pos[None]
@@ -143,11 +147,17 @@ def render_3d(output: ti.template(), volume: ti.template(), gradient_image: ti.t
             gradient = tm.normalize(sample_volume(gradient_image, uvw))
             
             # Beer–Lambert for opacity
-            sigma = 1.0  # absorption coefficient
+            sigma = 2.0  # absorption coefficient
             sample_a = 1.0 - tm.exp(-sigma * density * dt)
             sample_col = tm.vec3(pow(density, 0.6))  # gamma‐corrected white ramp
             weight = (1 - alpha_acc) * sample_a
-            col += weight * sample_col * (gradient * 0.5 + 0.5)
+            
+            old_color = cmap.interp_cmap(old_cmap, gradient.x * 0.5 + 0.5)
+            new_color = cmap.interp_cmap(new_cmap, gradient.x * 0.5 + 0.5)
+            
+            color = tm.mix(old_color, new_color, time)
+            
+            col += weight * sample_col * color  # apply gradient and color mapping
             
             alpha_acc += weight
 
