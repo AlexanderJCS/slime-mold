@@ -9,37 +9,37 @@ def normalize(v):
     return v / np.linalg.norm(v)
 
 
-look_at = tm.vec3(0.0, 0.0, 0.0)
-camera_pos = tm.vec3(2, 0.0, 2)
-fov = np.radians(27.5)
+camera_pos = ti.Vector.field(3, dtype=ti.f32, shape=())  # mutable scalar vec3
+look_at = ti.Vector.field(3, dtype=ti.f32, shape=())
+fov = ti.field(dtype=ti.f32, shape=())
 
-world_up = tm.vec3(0.0, 1.0, 0.0)
-camera_w = tm.vec3(normalize(camera_pos - look_at))
 
-if abs(camera_w.dot(world_up)) > 0.999:
-    world_up = tm.vec3(0.0, 0.0, 1.0)
-
-# noinspection PyUnreachableCode
-camera_u = tm.vec3(normalize(np.cross(world_up, camera_w)))
-# noinspection PyUnreachableCode
-camera_v = tm.vec3(normalize(np.cross(camera_w, camera_u)))
-
-camera_theta = fov / 2.0
-camera_half_height = np.tan(camera_theta)
-camera_half_width = camera_half_height * config.RESOLUTION[0] / config.RESOLUTION[1]
+@ti.func
+def get_camera_basis():
+    w = (camera_pos[None] - look_at[None]).normalized()
+    up = tm.vec3(0.0, 1.0, 0.0)
+    if abs(w.dot(up)) > 0.999:
+        up = tm.vec3(0.0, 0.0, 1.0)
+    u = up.cross(w).normalized()
+    v = w.cross(u)
+    return u, v, w
 
 
 @ti.func
 def start_ray(x: int, y: int) -> tm.vec3:
-    horizontal = 2 * camera_half_width * camera_u
-    vertical = 2 * camera_half_height * camera_v
-    
-    u_s = (x + 0.5) / config.RESOLUTION[0]
-    v_s = (y + 0.5) / config.RESOLUTION[1]
-    
-    lower_left = camera_pos - camera_half_width * camera_u - camera_half_height * camera_v - camera_w
-    
-    return tm.normalize(lower_left + u_s * horizontal + v_s * vertical - camera_pos)
+    u, v, w = get_camera_basis()
+    aspect = config.RESOLUTION[0] / config.RESOLUTION[1]
+    half_height = ti.tan(fov[None] / 2.0)
+    half_width = half_height * aspect
+
+    pixel_u = (x + 0.5) / config.RESOLUTION[0]
+    pixel_v = (y + 0.5) / config.RESOLUTION[1]
+
+    horizontal = 2 * half_width * u
+    vertical = 2 * half_height * v
+    lower_left = camera_pos[None] - half_width * u - half_height * v - w
+
+    return (lower_left + pixel_u * horizontal + pixel_v * vertical - camera_pos[None]).normalized()
 
 
 @ti.func
@@ -113,11 +113,11 @@ def sample_volume(volume, pos):
 def render_3d(output: ti.template(), volume: ti.template(), gradient_image: ti.template()):
     for i in ti.grouped(output):
         # initialize ray
-        ray_o = camera_pos
+        ray_o = camera_pos[None]
         ray_d = start_ray(i.x, i.y)
         t_min, t_max = unit_cube_intersection(ray_o, ray_d)
         if t_min > t_max:
-            output[i] = ti.Vector([(t_min - t_max) * 0.025] * 3)  # grayscale
+            output[i] = tm.vec3(0)
             continue
 
         # march through the cube

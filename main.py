@@ -1,5 +1,4 @@
 import config
-import rendering
 
 import colorsys
 
@@ -8,6 +7,8 @@ import taichi as ti
 import taichi.math as tm
 
 ti.init(arch=ti.gpu)
+
+import rendering  # import rendering after ti.init
 
 
 agents_grid = ti.field(dtype=ti.f32, shape=config.GRID_SIZE)
@@ -304,6 +305,15 @@ def initialize_3d():
         agents_grid[i, j, k] = 0.5
 
 
+def rotate_camera(angle: float):
+    """Rotate the camera around the Y-axis by a small angle."""
+    cos_a, sin_a = np.cos(angle), np.sin(angle)
+    x = rendering.camera_pos[None].x * cos_a - rendering.camera_pos[None].z * sin_a
+    z = rendering.camera_pos[None].x * sin_a + rendering.camera_pos[None].z * cos_a
+    y = rendering.camera_pos[None].y  # unchanged
+    rendering.camera_pos[None] = tm.vec3(x, y, z)
+
+
 def main():
     gui = ti.GUI("Slime Mold", res=config.RESOLUTION, fast_gui=True)
 
@@ -318,6 +328,10 @@ def main():
     
     ping, pong = agents_grid, agents_grid_temp
     initialize_3d()
+    
+    rendering.camera_pos[None] = tm.vec3(0, 0, 1.5)
+    rendering.look_at[None] = tm.vec3(0, 0, 0)
+    rendering.fov[None] = np.radians(60)
     
     while not gui.get_event(ti.GUI.ESCAPE, ti.GUI.EXIT):
         deposit_trail(ping, config.COLOR)
@@ -338,7 +352,8 @@ def main():
         gui.set_image(render_img)
         gui.show()
 
-        count -= 1
+        count += 1
+        rotate_camera(-0.001)
 
 
 if __name__ == "__main__":
