@@ -117,7 +117,7 @@ def render_3d(output: ti.template(), volume: ti.template(), gradient_image: ti.t
         ray_d = start_ray(i.x, i.y)
         t_min, t_max = unit_cube_intersection(ray_o, ray_d)
         if t_min > t_max:
-            output[i] = tm.vec3(0.1)
+            output[i] = ti.Vector([(t_min - t_max) * 0.025] * 3)  # grayscale
             continue
 
         # march through the cube
