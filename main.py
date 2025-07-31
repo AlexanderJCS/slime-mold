@@ -314,6 +314,11 @@ def rotate_camera(angle: float):
     rendering.camera_pos[None] = tm.vec3(x, y, z)
 
 
+def lerp(a, b, t):
+    """Linear interpolation between a and b by t."""
+    return a + (b - a) * t
+
+
 def main():
     gui = ti.GUI("Slime Mold", res=config.RESOLUTION, fast_gui=True)
 
@@ -324,7 +329,7 @@ def main():
     # gui.set_image(render_img)
     # gui.show()
 
-    count = 0
+    count = 300
     
     ping, pong = agents_grid, agents_grid_temp
     initialize_3d()
@@ -333,10 +338,40 @@ def main():
     rendering.look_at[None] = tm.vec3(0, 0, 0)
     rendering.fov[None] = np.radians(60)
     
+    old_sense_angle = np.radians(60)
+    new_sense_angle = np.radians(60)
+    old_steer_strength = 1.0
+    new_steer_strength = 1.0
+    old_sense_reach = 15.0
+    new_sense_reach = 15.0
+    old_fade_strength = config.FADE_STRENGTH
+    new_fade_strength = config.FADE_STRENGTH
+    
     while not gui.get_event(ti.GUI.ESCAPE, ti.GUI.EXIT):
+        if count == 300:
+            big_angle = np.random.rand() > 0.8
+            big_dist = np.random.rand() > 0.8
+            
+            # Change parameters every 100 frames
+            old_sense_angle, new_sense_angle = new_sense_angle, np.radians(np.random.uniform(90, 120) if big_angle else np.random.uniform(15, 60))
+            old_steer_strength, new_steer_strength = new_steer_strength, np.random.uniform(0.8, 2.5)
+            old_sense_reach, new_sense_reach = new_sense_reach, np.random.uniform(13.0, 30.0) if big_dist else np.random.uniform(5.0, 10.0)
+            old_fade_strength, new_fade_strength = new_fade_strength, np.random.uniform(0.93, 0.98)
+            count = 0
+            print(f"New parameters: sense_angle={np.degrees(new_sense_angle):.2f}°, "
+                    f"steer_strength={new_steer_strength:.2f}, "
+                    f"sense_reach={new_sense_reach:.2f}, "
+                    f"fade_strength={new_fade_strength:.2f}")
+        
+        t = count / 300.0
+        sense_angle = lerp(old_sense_angle, new_sense_angle, t)
+        steer_strength = lerp(old_steer_strength, new_steer_strength, t)
+        sense_reach = lerp(old_sense_reach, new_sense_reach, t)
+        fade_strength = lerp(old_fade_strength, new_fade_strength, t)
+        
         deposit_trail(ping, config.COLOR)
-        update_pos(ping, np.radians(60), 1, 15.0)
-        fade(ping, config.FADE_STRENGTH)
+        update_pos(ping, sense_angle, steer_strength, sense_reach)
+        fade(ping, fade_strength)
 
         blur_axis(ping, pong, 1.0, 0.0, 0.0)
         ping, pong = pong, ping
