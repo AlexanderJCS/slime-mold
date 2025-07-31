@@ -66,7 +66,7 @@ def _intersect_slab(
 cube_size = ti.Vector.field(3, dtype=ti.f32, shape=(), needs_grad=False)
 half_size = ti.Vector.field(3, dtype=ti.f32, shape=(), needs_grad=False)
 
-cube_size[None] = tm.vec3(1, 1, 1)
+cube_size[None] = tm.vec3(1, 2, 1)
 half_size[None] = cube_size[None] * 0.5
 
 
@@ -91,19 +91,25 @@ def cube_intersection(orig, dir):
 
 
 @ti.func
+def wrap(idx, dim):
+    return (idx + dim) % dim
+
+@ti.func
 def sample_volume(volume, pos):
-    # pos in [0,1]^3; trilinear interpolation
-    p = pos * (tm.ivec3(volume.shape) - 1)
+    grid_size = tm.ivec3(volume.shape)
+    p = pos * (grid_size - 1)
     i0 = tm.floor(p).cast(int)
     f = p - i0.cast(float)
-    c000 = volume[i0]
-    c100 = volume[i0 + tm.ivec3(1, 0, 0)]
-    c010 = volume[i0 + tm.ivec3(0, 1, 0)]
-    c001 = volume[i0 + tm.ivec3(0, 0, 1)]
-    c110 = volume[i0 + tm.ivec3(1, 1, 0)]
-    c101 = volume[i0 + tm.ivec3(1, 0, 1)]
-    c011 = volume[i0 + tm.ivec3(0, 1, 1)]
-    c111 = volume[i0 + tm.ivec3(1, 1, 1)]
+    i0x, i0y, i0z = wrap(i0.x, grid_size.x), wrap(i0.y, grid_size.y), wrap(i0.z, grid_size.z)
+    i1x, i1y, i1z = wrap(i0.x + 1, grid_size.x), wrap(i0.y + 1, grid_size.y), wrap(i0.z + 1, grid_size.z)
+    c000 = volume[i0x, i0y, i0z]
+    c100 = volume[i1x, i0y, i0z]
+    c010 = volume[i0x, i1y, i0z]
+    c001 = volume[i0x, i0y, i1z]
+    c110 = volume[i1x, i1y, i0z]
+    c101 = volume[i1x, i0y, i1z]
+    c011 = volume[i0x, i1y, i1z]
+    c111 = volume[i1x, i1y, i1z]
     c00 = c000*(1-f.x) + c100*f.x
     c01 = c001*(1-f.x) + c101*f.x
     c10 = c010*(1-f.x) + c110*f.x

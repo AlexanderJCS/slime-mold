@@ -215,15 +215,18 @@ def deposit_trail(img: ti.template(), color: float):
 @ti.kernel
 def compute_gradient(img: ti.template(), gradient: ti.template()):
     for i, j, k in img:
-        if 0 < i < config.GRID_SIZE[0] - 1 and \
-           0 < j < config.GRID_SIZE[1] - 1 and \
-           0 < k < config.GRID_SIZE[2] - 1:
+        ip = (i + 1) % config.GRID_SIZE[0]
+        im = (i - 1 + config.GRID_SIZE[0]) % config.GRID_SIZE[0]
+        jp = (j + 1) % config.GRID_SIZE[1]
+        jm = (j - 1 + config.GRID_SIZE[1]) % config.GRID_SIZE[1]
+        kp = (k + 1) % config.GRID_SIZE[2]
+        km = (k - 1 + config.GRID_SIZE[2]) % config.GRID_SIZE[2]
 
-            dx = 0.5 * (img[i + 1, j, k] - img[i - 1, j, k])
-            dy = 0.5 * (img[i, j + 1, k] - img[i, j - 1, k])
-            dz = 0.5 * (img[i, j, k + 1] - img[i, j, k - 1])
+        dx = 0.5 * (img[ip, j, k] - img[im, j, k])
+        dy = 0.5 * (img[i, jp, k] - img[i, jm, k])
+        dz = 0.5 * (img[i, j, kp] - img[i, j, km])
 
-            gradient[i, j, k] = ti.Vector([dx, dy, dz])
+        gradient[i, j, k] = ti.Vector([dx, dy, dz])
 
 
 @ti.kernel
