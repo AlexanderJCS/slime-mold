@@ -147,7 +147,7 @@ def render_3d(output: ti.template(), volume: ti.template(), gradient_image: ti.t
             sample_a = 1.0 - tm.exp(-sigma * density * dt)
             sample_col = tm.vec3(pow(density, 0.6))  # gamma‐corrected white ramp
             weight = (1 - alpha_acc) * sample_a
-            col += weight * sample_col * (gradient * 0.7 + 0.5)
+            col += weight * sample_col * (gradient * 0.5 + 0.5)
             
             alpha_acc += weight
 
