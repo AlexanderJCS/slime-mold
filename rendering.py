@@ -66,7 +66,7 @@ def _intersect_slab(
 cube_size = ti.Vector.field(3, dtype=ti.f32, shape=(), needs_grad=False)
 half_size = ti.Vector.field(3, dtype=ti.f32, shape=(), needs_grad=False)
 
-cube_size[None] = tm.vec3(1, 2, 1)
+cube_size[None] = tm.vec3(1, 2.5, 1)
 half_size[None] = cube_size[None] * 0.5
 
 
@@ -93,6 +93,7 @@ def cube_intersection(orig, dir):
 @ti.func
 def wrap(idx, dim):
     return (idx + dim) % dim
+
 
 @ti.func
 def sample_volume(volume, pos):
@@ -156,6 +157,7 @@ def render_3d(
                 
             density = tm.max(sample_volume(volume, uvw), 0.0)
             gradient = tm.normalize(sample_volume(gradient_image, uvw))
+            gradient_max = max(abs(gradient).x, abs(gradient).y, abs(gradient).z)
             
             # Beer–Lambert for opacity
             sigma = 2.0  # absorption coefficient
@@ -163,8 +165,8 @@ def render_3d(
             sample_col = tm.vec3(pow(density, 0.6))  # gamma‐corrected white ramp
             weight = (1 - alpha_acc) * sample_a
             
-            old_color = cmap.interp_cmap(old_cmap, tm.clamp(gradient.x * 0.5 + 0.5, 0.0001, 0.9999))
-            new_color = cmap.interp_cmap(new_cmap, tm.clamp(gradient.y * 0.5 + 0.5, 0.0001, 0.9999))
+            old_color = cmap.interp_cmap(old_cmap, tm.clamp(gradient_max, 0.0001, 0.9999))
+            new_color = cmap.interp_cmap(new_cmap, tm.clamp(gradient_max, 0.0001, 0.9999))
             
             color = tm.mix(old_color, new_color, time)
             

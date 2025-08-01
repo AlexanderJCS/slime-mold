@@ -287,7 +287,7 @@ def main():
             # Change parameters every 100 frames
             old_sense_angle, new_sense_angle = new_sense_angle, np.radians(np.random.uniform(90, 120) if big_angle else np.random.uniform(15, 60))
             old_steer_strength, new_steer_strength = new_steer_strength, np.random.uniform(0.8, 2.5)
-            old_sense_reach, new_sense_reach = new_sense_reach, np.random.uniform(13.0, 30.0) if big_dist else np.random.uniform(5.0, 10.0)
+            old_sense_reach, new_sense_reach = new_sense_reach, np.random.uniform(13.0, 20.0) if big_dist else np.random.uniform(5.0, 10.0)
             old_fade_strength, new_fade_strength = new_fade_strength, np.random.uniform(0.93, 0.98)
             old_cmap, new_cmap = new_cmap, cmap.gen_cmap()
             count = 0
