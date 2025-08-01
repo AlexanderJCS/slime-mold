@@ -6,3 +6,4 @@ COLOR = 2000000 / AGENT_COUNT
 CMAP_COLORS = 6  # number of colors in the colormap
 SPEED = 2
 FADE_STRENGTH = 0.93
+MAKE_VIDEO = True

@@ -4,6 +4,7 @@ import cmap
 import colorsys
 
 import numpy as np
+import cv2
 import taichi as ti
 import taichi.math as tm
 
@@ -250,6 +251,27 @@ def lerp(a, b, t):
 
 
 def main():
+    if config.MAKE_VIDEO:
+        # unpack your resolution so width, height are plain ints
+        h, w = render_img.to_numpy().shape[:2]
+        
+        # pick the H.264 FourCC
+        fourcc = cv2.VideoWriter_fourcc(*'avc1')  # or *'H264'*
+        
+        # force FFmpeg backend as 2nd argument, then fourcc, then fps, then (w,h), then isColor
+        video_writer = cv2.VideoWriter(
+            "slime_mold.mp4",  # 1. filename
+            cv2.CAP_FFMPEG,  # 2. apiPreference → ensure we use FFmpeg
+            fourcc,  # 3. codec FourCC (avc1 = H.264)
+            60,  # 4. fps
+            (h, w),  # 5. frameSize
+            True  # 6. isColor
+        )
+        
+        if not video_writer.isOpened():
+            print("Error: Could not open video writer.")
+            return
+    
     gui = ti.GUI("Slime Mold", res=config.RESOLUTION, fast_gui=True)
 
     gen_agents()
@@ -279,6 +301,7 @@ def main():
     old_cmap = cmap.gen_cmap()
     new_cmap = cmap.gen_cmap()
     
+    frame = 0
     while not gui.get_event(ti.GUI.ESCAPE, ti.GUI.EXIT):
         if count == 300:
             big_angle = np.random.rand() > 0.8
@@ -317,11 +340,26 @@ def main():
 
         rendering.render_3d(render_img, agents_grid, gradient, old_cmap, new_cmap, t)
 
+        if config.MAKE_VIDEO and frame % 3 == 0:
+            render_img_numpy = render_img.to_numpy()
+            render_img_numpy = (render_img_numpy * 255).astype(np.uint8)
+            render_img_numpy = cv2.cvtColor(render_img_numpy, cv2.COLOR_RGB2BGR)
+            
+            # swap axes from (H, W, C) to (W, H, C)
+            render_img_numpy = np.transpose(render_img_numpy, (1, 0, 2))
+            
+            video_writer.write(render_img_numpy)
+
         gui.set_image(render_img)
         gui.show()
 
         count += 1
         rotate_camera(-0.001)
+        frame += 1
+
+    if config.MAKE_VIDEO:
+        video_writer.release()
+        print("Video saved as slime_mold.mp4")
 
 
 if __name__ == "__main__":
