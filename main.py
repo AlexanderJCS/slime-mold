@@ -264,7 +264,7 @@ def main():
     ping, pong = agents_grid, agents_grid_temp
     initialize_3d()
     
-    rendering.camera_pos[None] = tm.vec3(0, 0, 1.5)
+    rendering.camera_pos[None] = tm.vec3(0, 0, 3)
     rendering.look_at[None] = tm.vec3(0, 0, 0)
     rendering.fov[None] = np.radians(60)
     
@@ -282,13 +282,13 @@ def main():
     while not gui.get_event(ti.GUI.ESCAPE, ti.GUI.EXIT):
         if count == 300:
             big_angle = np.random.rand() > 0.8
-            big_dist = np.random.rand() > 0.8
+            big_dist = np.random.rand() > 0.5
             
             # Change parameters every 100 frames
-            old_sense_angle, new_sense_angle = new_sense_angle, np.radians(np.random.uniform(90, 120) if big_angle else np.random.uniform(15, 60))
-            old_steer_strength, new_steer_strength = new_steer_strength, np.random.uniform(0.8, 2.5)
-            old_sense_reach, new_sense_reach = new_sense_reach, np.random.uniform(13.0, 20.0) if big_dist else np.random.uniform(5.0, 10.0)
-            old_fade_strength, new_fade_strength = new_fade_strength, np.random.uniform(0.93, 0.98)
+            old_sense_angle, new_sense_angle = new_sense_angle, np.radians(np.random.uniform(90, 120) if big_angle else np.random.uniform(35, 70))
+            old_steer_strength, new_steer_strength = new_steer_strength, np.random.uniform(1.2, 2.1)
+            old_sense_reach, new_sense_reach = new_sense_reach, np.random.uniform(15.0, 20.0) if big_dist else np.random.uniform(5.0, 7.5)
+            old_fade_strength, new_fade_strength = new_fade_strength, np.random.uniform(0.9, 0.95)
             old_cmap, new_cmap = new_cmap, cmap.gen_cmap()
             count = 0
             print(f"New parameters: sense_angle={np.degrees(new_sense_angle):.2f}°, "

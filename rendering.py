@@ -66,7 +66,7 @@ def _intersect_slab(
 cube_size = ti.Vector.field(3, dtype=ti.f32, shape=(), needs_grad=False)
 half_size = ti.Vector.field(3, dtype=ti.f32, shape=(), needs_grad=False)
 
-cube_size[None] = tm.vec3(1, 2.5, 1)
+cube_size[None] = tm.vec3(1.0, 2.3, 1.0)
 half_size[None] = cube_size[None] * 0.5
 
 
