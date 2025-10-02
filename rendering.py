@@ -120,60 +120,81 @@ def sample_volume(volume, pos):
     return c0*(1-f.z) + c1*f.z
 
 
+@ti.func
+def lightmarch(volume, pos):
+    dir_to_light = tm.vec3(1, 1, 1).normalized()
+    t_min, t_max = cube_intersection(pos, dir_to_light)
+    
+    steps = ti.static(8)
+    dt = (t_max - t_min) / steps
+    
+    total_density = 0.0
+    for step in range(steps):
+        t = t_min + (step + 0.5) * dt
+        p = pos + t * dir_to_light
+        local = p + half_size[None]
+        uvw = tm.fract(local)
+        density = sample_volume(volume, uvw)
+        total_density += density * dt * 10.0  # scale factor to control shadow strength
+    
+    transmittance = ti.exp(-total_density * 1.0)
+    return 0 + transmittance * (1 - 0)
+
+
+@ti.func
+def tonemap_aces(color):
+    a = 2.51
+    b = 0.03
+    c = 2.43
+    d = 0.59
+    e = 0.14
+    return tm.clamp((color * (a * color + b)) / (color * (c * color + d) + e), 0.0, 1.0)
+
+
 @ti.kernel
 def render_3d(
         output: ti.template(), volume: ti.template(), gradient_image: ti.template(),
         old_cmap: ti.template(), new_cmap: ti.template(), time: float
 ):
+    extinction = 4.0
+    light_intensity = 5.0
+    background_color = tm.vec3(1.2, 1.4, 2.0)  # light blue
+    
     for i in ti.grouped(output):
         # initialize ray
         ray_o = camera_pos[None]
         ray_d = start_ray(i.x, i.y)
         t_min, t_max = cube_intersection(ray_o, ray_d)
         if t_min > t_max:
-            output[i] = tm.vec3(0)
+            output[i] = tonemap_aces(background_color)
             continue
 
         # march through the cube
         dist = t_max - t_min
-        num_samples = ti.static(256)
+        num_samples = ti.static(64)
         dt = dist / num_samples
 
-        col = tm.vec3(0.0)
-        alpha_acc = 0.0
+        transmittance = 1.0
+        light_energy = 0.0
 
-        for s in range(num_samples):
-            if alpha_acc > 0.99:
-                break  # early exit once almost opaque
-
-            t = t_min + (s + 0.5) * dt  # midpoint sampling
-
-            p = ray_o + t * ray_d
-            local = p + half_size[None]
+        dist_traveled = 0.0
+        for step in range(num_samples):
+            t = t_min + (step + 0.5) * dt
+            pos = ray_o + t * ray_d
+            local = pos + half_size[None]
             uvw = tm.fract(local)
-
-            if any(uvw < 0.0) or any(uvw > 1.0):
-                continue
+            
+            density = sample_volume(volume, uvw)
+            if density > 0.01:
+                light_transmittance = lightmarch(volume, pos)
+                light_energy += density * dt * transmittance * light_transmittance * light_intensity
+                transmittance *= ti.exp(-density * dt * extinction)
                 
-            density = tm.max(sample_volume(volume, uvw), 0.0)
-            gradient = tm.normalize(sample_volume(gradient_image, uvw))
-            gradient_max = max(abs(gradient).x, abs(gradient).y, abs(gradient).z)
+                if transmittance < 0.01:
+                    break
             
-            # Beer–Lambert for opacity
-            sigma = 2.0  # absorption coefficient
-            sample_a = 1.0 - tm.exp(-sigma * density * dt)
-            sample_col = tm.vec3(pow(density, 0.6))  # gamma‐corrected white ramp
-            weight = (1 - alpha_acc) * sample_a
-            
-            old_color = cmap.interp_cmap(old_cmap, tm.clamp(gradient_max, 0.0001, 0.9999))
-            new_color = cmap.interp_cmap(new_cmap, tm.clamp(gradient_max, 0.0001, 0.9999))
-            
-            color = tm.mix(old_color, new_color, time)
-            
-            col += weight * sample_col * color  # apply gradient and color mapping
-            
-            alpha_acc += weight
-
-        # Reinhard tonemapping
-        col = col / (1.0 + col)
-        output[i] = col
+            dist_traveled += dt
+        
+        cloud_color = light_energy * tm.vec3(1.0)
+        col = cloud_color + transmittance * background_color
+        output[i] = tonemap_aces(col)
